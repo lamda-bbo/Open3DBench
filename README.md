@@ -18,7 +18,7 @@ Alternatively, to reproduce the PPA results, we provide 16 DEFs corresponding to
 
 If you want to perform partitioning and 3D placement, you need to install the standard environment for DREAMPlace. We strongly recommend using the official Docker environment provided by [DREAMPlace](https://github.com/limbo018/DREAMPlace?tab=readme-ov-file#build-with-docker) as it is very convenient and easy to use.
 
-After configuring the environment, you need to first download the [dataset](https://drive.google.com/file/d/15D2ge4FJsn4HP4o4AVzoQms6Xx-3ugZ0/view?usp=sharing), unzip it and place it in the `Place-3D/` directory. Next, execute the following commands:
+After configuring the environment, you need to first download the [dataset](https://drive.google.com/file/d/19Z1gXgxRConScXDXoXMm6ColFWZCU6H7/view?usp=sharing), unzip it and place it in the `Place-3D/` directory. Next, execute the following commands:
 
 ```bash
 cd Open3DBench/Place-3D
