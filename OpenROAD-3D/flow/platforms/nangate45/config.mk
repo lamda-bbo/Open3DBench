@@ -16,7 +16,7 @@ export GDS_FILES = $(sort $(wildcard $(PLATFORM_DIR)/gds/*.gds)) \
 export DONT_USE_CELLS = TAPCELL_X1 FILLCELL_X1 AOI211_X1 OAI211_X1
 
 # Fill cells used in fill cell insertion
-export FILL_CELLS = FILLCELL_X1 FILLCELL_X2 FILLCELL_X4 FILLCELL_X8 FILLCELL_X16 FILLCELL_X32
+export FILL_CELLS ?= FILLCELL_X1 FILLCELL_X2 FILLCELL_X4 FILLCELL_X8 FILLCELL_X16 FILLCELL_X32
 
 # -----------------------------------------------------
 #  Yosys
@@ -57,7 +57,8 @@ export IO_PLACER_V = metal6
 export PDN_TCL ?= $(PLATFORM_DIR)/grid_strategy-M1-M4-M7.tcl
 
 # Endcap and Welltie cells
-export TAPCELL_TCL = $(PLATFORM_DIR)/tapcell.tcl
+export TAPCELL_TCL ?= $(PLATFORM_DIR)/tapcell.tcl
+export TAP_CELL_NAME = TAPCELL_X1
 
 export MACRO_PLACE_HALO ?= 22.4 15.12
 export MACRO_PLACE_CHANNEL ?= 18.8 19.95
@@ -65,12 +66,10 @@ export MACRO_PLACE_CHANNEL ?= 18.8 19.95
 #---------------------------------------------------------
 # Place
 # --------------------------------------------------------
-# Cell padding in SITE widths to ease rout-ability.  Applied to both sides
+export PLACE_DENSITY ?= 0.30
+
 export CELL_PAD_IN_SITES_GLOBAL_PLACEMENT ?= 0
 export CELL_PAD_IN_SITES_DETAIL_PLACEMENT ?= 0
-#
-
-export PLACE_DENSITY ?= 0.30
 
 # --------------------------------------------------------
 #  CTS
@@ -116,3 +115,7 @@ export RCX_RULES               = $(PLATFORM_DIR)/rcx_patterns.rules
 export PWR_NETS_VOLTAGES  ?= "VDD 1.1"
 export GND_NETS_VOLTAGES  ?= "VSS 0.0"
 export IR_DROP_LAYER ?= metal1
+
+# export GLOBAL_ROUTE_ARGS = -allow_congestion -verbose -congestion_iterations 5
+
+# export DETAILED_ROUTE_ARGS = -droute_end_iter 4 -verbose 1

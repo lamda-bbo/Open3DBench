@@ -2,7 +2,6 @@ utl::set_metrics_stage "cts__{}"
 source $::env(SCRIPTS_DIR)/load.tcl
 load_design 3_place.odb 3_place.sdc "Starting CTS"
 
-
 # Clone clock tree inverters next to register loads
 # so cts does not try to buffer the inverted clocks.
 repair_clock_inverters
@@ -146,37 +145,8 @@ if { [info exists ::env(SKIP_GATE_CLONING)] } {
   append additional_args " -skip_gate_cloning"
 }
 
-# repair_timing {*}$additional_args
 
-
-
-# set success [run_detailed_placement ""]
-
-# if {$success} {
-#     set max_displacement_values {50 100 500 1000 5000 10000}
-#     foreach max_displacement $max_displacement_values {
-#         set success [run_detailed_placement $max_displacement]
-#         if {!$success} {
-#             break
-#         }
-#     }
-# }
-
-
-
-
-
-# set result [catch {detailed_placement} msg]
-# if {$result != 0} {
-#   save_progress 4_1_error
-#   puts "Detailed placement failed in CTS: $msg"
-#   return -code $result
-# }
-
-# check_placement -verbose
-
-
-if {$env(DESIGN_DIMENSION) eq "2D" || $env(DESIGN_DIMENSION) eq "auto" || $env(DESIGN_DIMENSION) eq "2D_mp"} {
+if {$env(PLATFORM) ne "nangate45_3D"} {
   detailed_placement
 }
 

@@ -4,7 +4,7 @@ export PLATFORM    = nangate45_3D
 
 export SYNTH_HIERARCHICAL = 1
 export RTLMP_FLOW = 1
-export FLOW_VARIANT = 3D
+export FLOW_VARIANT ?= 3D
 # export MACRO_PLACEMENT = mp_out
 #
 # RTL_MP Settings

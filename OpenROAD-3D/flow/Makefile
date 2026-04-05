@@ -153,7 +153,7 @@ export DIVIDE_DEF_PY      := $(HOTSPOT_SCRIPTS_DIR)/scripts/divide_def.py
 export REPORT_POWER_TCL   := $(HOTSPOT_SCRIPTS_DIR)/scripts/run_report_power.tcl
 export MERGE_PTRACE_PY      := $(HOTSPOT_SCRIPTS_DIR)/scripts/merge_ptrace.py
 export HOTSPOT_OUTPUT   := $(HOTSPOT_SCRIPTS_DIR)/scripts/output
-export STA_EXE            := /usr/local/bin/sta
+export STA_EXE            ?= $(shell which sta)
 export FINAL_DEF ?= $(RESULTS_DIR)/6_final.def
 export FINAL_V ?= $(RESULTS_DIR)/6_final.v
 export FINAL_SDC ?= $(RESULTS_DIR)/6_1_fill.sdc
@@ -288,6 +288,7 @@ export LOG_DIR     = $(WORK_HOME)/logs/$(PLATFORM)/$(DESIGN_NICKNAME)/$(FLOW_VAR
 export OBJECTS_DIR = $(WORK_HOME)/objects/$(PLATFORM)/$(DESIGN_NICKNAME)/$(FLOW_VARIANT)
 export REPORTS_DIR = $(WORK_HOME)/reports/$(PLATFORM)/$(DESIGN_NICKNAME)/$(FLOW_VARIANT)
 export RESULTS_DIR = $(WORK_HOME)/results/$(PLATFORM)/$(DESIGN_NICKNAME)/$(FLOW_VARIANT)
+export HOTSPOT_EXAMPLE_DIR ?= $(FLOW_VARIANT)_$(DEF_VERSION)
 
 ifdef BLOCKS
 ifeq ($(MAKELEVEL),0)
@@ -357,14 +358,14 @@ endif
 # Priority is given to
 #       1 user explicit set with variable in Makefile or command line, for instance setting OPENROAD_EXE
 #       2 ORFS compiled tools: openroad, yosys
-export OPENROAD_EXE      ?= $(abspath $(FLOW_HOME)/../tools/install/OpenROAD/bin/openroad)
+export OPENROAD_EXE ?= $(shell which openroad)
 
 OPENROAD_ARGS            = -no_init $(OR_ARGS)
 OPENROAD_CMD             = $(OPENROAD_EXE) -exit $(OPENROAD_ARGS)
 OPENROAD_NO_EXIT_CMD     = $(OPENROAD_EXE) $(OPENROAD_ARGS)
 OPENROAD_GUI_CMD         = $(OPENROAD_EXE) -gui $(OR_ARGS)
 
-YOSYS_EXE               ?= $(abspath $(FLOW_HOME)/../tools/install/yosys/bin/yosys)
+YOSYS_EXE               ?= $(shell which yosys)
 
 # Use locally installed and built klayout if it exists, otherwise use klayout in path
 KLAYOUT_DIR = $(abspath $(FLOW_HOME)/../tools/install/klayout/)
@@ -460,7 +461,11 @@ $(OBJECTS_DIR)/klayout_tech.lef: $(TECH_LEF)
 	cp $< $@
 
 KLAYOUT_ENV_VAR_IN_PATH_VERSION = 0.28.11
-KLAYOUT_VERSION = $(shell $(KLAYOUT_CMD) -v 2>/dev/null | grep 'KLayout' | cut -d ' ' -f2)
+ifneq ($(KLAYOUT_CMD),)
+    KLAYOUT_VERSION = $(shell $(KLAYOUT_CMD) -v 2>/dev/null | grep 'KLayout' | cut -d ' ' -f2)
+else
+    KLAYOUT_VERSION = 0.0.0
+endif
 
 KLAYOUT_ENV_VAR_IN_PATH = $(shell \
 	if [ -z "$(KLAYOUT_VERSION)" ]; then \
@@ -603,6 +608,7 @@ $(if $(5),$(5),$(RESULTS_DIR))/$(1)$(if $(4),$(4),.odb): $(2)
 
 .PHONY: do-$(1)
 do-$(1):
+	mkdir -p $(RESULTS_DIR) $(LOG_DIR) $(REPORTS_DIR)
 	($(TIME_CMD) $(OPENROAD_CMD) $(SCRIPTS_DIR)/$(3).tcl -metrics $(LOG_DIR)/$(1).json) 2>&1 | tee $(LOG_DIR)/$(1).tmp.log
 	mv $(LOG_DIR)/$(1).tmp.log $(LOG_DIR)/$(1).log
 endef
@@ -660,7 +666,7 @@ $(eval $(call do-step,2_3_place_mixgp,$(RESULTS_DIR)/2_2_floorplan_io.odb $(RESU
 do-def_eval:
 	mkdir -p $(RESULTS_DIR) $(LOG_DIR) $(REPORTS_DIR)
 	$(OPENROAD_EXE) -exit scripts_3D/init_odb.tcl
-	cp $(RESULTS_DIR)/$(DESIGN_DIMENSION)_out.odb $(RESULTS_DIR)/2_5_floorplan_tapcell.odb
+	cp $(RESULTS_DIR)/3D_out.odb $(RESULTS_DIR)/2_5_floorplan_tapcell.odb
 	$(UNSET_AND_MAKE) do-2_6_floorplan_pdn do-2_floorplan 
 	cp $(RESULTS_DIR)/1_synth.sdc $(RESULTS_DIR)/2_floorplan.sdc
 	cp $(RESULTS_DIR)/2_floorplan.odb $(RESULTS_DIR)/3_3_place_gp.odb
@@ -669,8 +675,9 @@ do-def_eval:
 .PHONY: do-pre_cts
 do-pre_cts:
 	mkdir -p $(RESULTS_DIR) $(LOG_DIR) $(REPORTS_DIR)
-	cp $(RESULTS_DIR)/$(DESIGN_DIMENSION)_out.odb $(RESULTS_DIR)/2_5_floorplan_tapcell.odb
-	$(UNSET_AND_MAKE) do-2_6_floorplan_pdn do-2_floorplan 
+	cp $(DESIGN_DIR)/*.sdc $(RESULTS_DIR)/1_synth.sdc
+	cp $(RESULTS_DIR)/3D_out.odb $(RESULTS_DIR)/2_6_floorplan_pdn.odb
+	$(UNSET_AND_MAKE) do-2_floorplan 
 	cp $(RESULTS_DIR)/1_synth.sdc $(RESULTS_DIR)/2_floorplan.sdc
 	cp $(RESULTS_DIR)/2_floorplan.odb $(RESULTS_DIR)/3_3_place_gp.odb
 	$(UNSET_AND_MAKE) do-3_4_place_resized do-3_5_place_dp do-3_place do-3_place.sdc do-cts 
@@ -690,7 +697,11 @@ do-autoflow:
 	$(OPENROAD_EXE) -exit scripts_3D/init_odb.tcl
 	$(UNSET_AND_MAKE) do-pre_cts
 
-    
+
+.PHONY: do-place_macros
+do-place_macros:
+	mkdir -p $(RESULTS_DIR) $(LOG_DIR) $(REPORTS_DIR)
+	$(OPENROAD_EXE) -exit scripts_3D/place_macros.tcl
 	
 .PHONY: do-cts_eval
 do-cts_eval:
@@ -705,6 +716,25 @@ do-cts_eval:
 	cp $(RESULTS_DIR)/my_cts.odb $(RESULTS_DIR)/4_cts.odb
 	cp $(RESULTS_DIR)/1_synth.sdc $(RESULTS_DIR)/4_cts.sdc
 	$(UNSET_AND_MAKE) do-route do-finish
+
+.PHONY: do-lolflow
+do-lolflow:
+	mkdir -p $(RESULTS_DIR) $(LOG_DIR) $(REPORTS_DIR)
+	cp $(SDC_FILE) $(RESULTS_DIR)/1_synth.sdc
+	$(OPENROAD_EXE) -exit scripts_3D/read_def.tcl
+	python3 scripts_3D/save_map_lol.py
+	python3 scripts_3D/split_cts_def_lol.py
+	$(OPENROAD_EXE) -exit scripts_3D/lg_bottom.tcl
+	$(OPENROAD_EXE) -exit scripts_3D/lg_upper.tcl
+	python3 scripts_3D/read_def_store_coord.py
+	$(OPENROAD_EXE) -exit scripts_3D/load_cts.tcl
+	cp $(RESULTS_DIR)/my_cts.odb $(RESULTS_DIR)/4_cts.odb
+	cp $(RESULTS_DIR)/1_synth.sdc $(RESULTS_DIR)/4_cts.sdc
+	$(UNSET_AND_MAKE) do-route do-finish
+
+.PHONY: do-get_3d_hpwl
+do-get_3d_hpwl:
+	$(OPENROAD_EXE) -exit scripts_3D/get_hpwl_3d.tcl
 
 # RWQ
 .PHONY: do-hotspot
@@ -746,26 +776,26 @@ do-hotspot:
 	rm -f "$(HOTSPOT_OUTPUT)/upper.ptrace" "$(HOTSPOT_OUTPUT)/bottom.ptrace"
 	
 	@echo "[6/8] Creating version directory..."
-	@mkdir -p "$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)"
+	@mkdir -p "$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)"
 	@mkdir -p "$(HOTSPOT_SCRIPTS_DIR)/examples/thermal/"
-	@chown -R $(USER):$(USER) "$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)"
+	@chown -R $(USER):$(USER) "$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)"
 	
 	@rsync -a --exclude='*/' \
 		"$(HOTSPOT_SCRIPTS_DIR)/examples/thermal/" \
-		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)/"
+		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)/"
 	
 	@cp -f "$(HOTSPOT_SCRIPTS_DIR)/scripts/output/"* \
-		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)/" 2>/dev/null || true
+		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)/" 2>/dev/null || true
 	
 	@echo "Running HotSpot analysis..."
-	@cd "$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)/" && \
+	@cd "$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)/" && \
 		chown -R $(USER):$(USER) ./ && \
 		chmod +x run.sh && \
 		./run.sh
 	
 	@mkdir -p "$(RESULTS_DIR)/hotspot_outputs"
 	@rsync -a --delete \
-		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)/outputs/" \
+		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)/outputs/" \
 		"$(RESULTS_DIR)/hotspot_outputs/" 2>/dev/null || true
 	@chown -R $(USER):$(USER) "$(RESULTS_DIR)/hotspot_outputs"
 
@@ -792,27 +822,27 @@ do-hotspot_2D:
 	$(STA_EXE) $(REPORT_POWER_TCL)
 
 	@echo "[3/6] Creating version directory..."
-	@mkdir -p "$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)"
-	@chown -R $(USER):$(USER) "$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)"
+	@mkdir -p "$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)"
+	@chown -R $(USER):$(USER) "$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)"
 	
 	@echo "[4/6] Copying 2D baseline configuration..."
 	@rsync -a --exclude='*/' \
 		"$(HOTSPOT_SCRIPTS_DIR)/examples/example2/" \
-		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)/"
+		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)/"
 	
 	@echo "[5/6] Overwriting with scripts/output..."
 	@cp -f "$(HOTSPOT_SCRIPTS_DIR)/scripts/output/"* \
-		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)/" 2>/dev/null || true
+		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)/" 2>/dev/null || true
 	
 	@echo "[6/6] Running HotSpot analysis..."
-	@cd "$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)/" && \
+	@cd "$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)/" && \
 		chown -R $(USER):$(USER) ./ && \
 		chmod +x run.sh && \
 		./run.sh
 	
 	@mkdir -p "$(RESULTS_DIR)/hotspot_outputs"
 	@rsync -a --delete \
-		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(DESIGN_DIMENSION)_$(DEF_VERSION)/outputs/" \
+		"$(HOTSPOT_SCRIPTS_DIR)/examples/$(HOTSPOT_EXAMPLE_DIR)/outputs/" \
 		"$(RESULTS_DIR)/hotspot_outputs/" 2>/dev/null || true
 	@chown -R $(USER):$(USER) "$(RESULTS_DIR)/hotspot_outputs"
 

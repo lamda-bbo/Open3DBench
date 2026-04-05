@@ -10,6 +10,7 @@ set_layer_rc -layer metal8 -resistance 1.8750e-04 -capacitance 9.69714E-02
 # No calibration data available for metal9 and metal10
 set_layer_rc -layer metal9 -resistance 3.7500e-05 -capacitance 3.6864e-02
 set_layer_rc -layer metal10 -resistance 3.7500e-05 -capacitance 2.8042e-02
+# set_layer_rc -layer hbt -resistance 3.7500e-05 -capacitance 2.8042e-02
 set_layer_rc -layer metal11 -resistance 3.7500e-05 -capacitance 2.8042e-02
 set_layer_rc -layer metal12 -resistance 3.7500e-05 -capacitance 3.6864e-02
 set_layer_rc -layer metal13 -resistance 1.8750e-04 -capacitance 9.69714E-02

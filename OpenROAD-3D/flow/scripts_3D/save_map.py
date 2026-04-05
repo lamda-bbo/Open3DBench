@@ -1,5 +1,6 @@
 import pickle
 import os
+import pdb
 
 try:
     design_dir = os.environ['DESIGN_DIR']
@@ -19,8 +20,7 @@ try:
 except KeyError:
     print("ERROR: DEF_VERSION environment variable is not set.")
 
-def_dimension = os.environ['DESIGN_DIMENSION']
-gp_out_file = f"{design_dir}{def_version}_{def_dimension}.gp.def"
+gp_out_file = os.environ['DEF_INPUT']
 
 name_die_map = {}
 with open(gp_out_file, 'r', encoding='utf-8') as def_file:

@@ -1,1 +1,4 @@
-shape.o: shape.c shape.h flp.h util.h npe.h
+shape.o: shape.c shape.h flp.h util.h /usr/include/superlu/slu_ddefs.h \
+ /usr/include/superlu/slu_Cnames.h /usr/include/superlu/supermatrix.h \
+ /usr/include/superlu/slu_util.h \
+ /usr/include/superlu/superlu_enum_consts.h npe.h

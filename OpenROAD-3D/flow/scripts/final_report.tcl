@@ -2,7 +2,15 @@ utl::set_metrics_stage "finish__{}"
 source $::env(SCRIPTS_DIR)/load.tcl
 load_design 6_1_fill.odb 6_1_fill.sdc "Starting final report"
 
-set_propagated_clock [all_clocks]
+if {[info exist env(IDEAL_CLOCK)]} {
+  set_ideal_network [all_clocks]
+  set_false_path -through rst_ni
+  set_false_path -through reset_i
+  set_false_path -through reset_l
+  set_false_path -through p_clk_async_reset_i
+} else {
+  set_propagated_clock [all_clocks]
+}
 
 # Ensure all OR created (rsz/cts) instances are connected
 global_connect

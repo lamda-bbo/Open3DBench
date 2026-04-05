@@ -60,7 +60,7 @@ library (NangateOpenCellLibrary) {
   nom_temperature         		: 25.00;
   nom_voltage             		: 1.10;
 
-  voltage_map (VDD,10);
+  voltage_map (VDD,1.10);
   voltage_map (VSS,0.00);
 
   define(process_corner, operating_conditions, string);

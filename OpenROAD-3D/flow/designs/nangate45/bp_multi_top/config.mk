@@ -4,8 +4,7 @@ export PLATFORM    = nangate45
 
 export SYNTH_HIERARCHICAL = 1
 export RTLMP_FLOW = 1
-export FLOW_VARIANT = 2D
-# export MACRO_PLACEMENT = mp_out
+export FLOW_VARIANT ?= 2D_rtlmp
 #
 # RTL_MP Settings
 export RTLMP_MAX_INST = 30000
@@ -34,9 +33,6 @@ export ADDITIONAL_LIBS = $(PLATFORM_DIR)/lib/fakeram45_512x64.lib \
 
 export DIE_AREA    = 0 0 1100 1100 
 export CORE_AREA   = 10.07 9.8 1090 1090
-
-# export DIE_AREA    = 0 0 800 800 
-# export CORE_AREA   = 10.07 9.8 800 800
 
 # export PLACE_PINS_ARGS = -exclude left:100-1100 -exclude right:100-1100 -exclude top:*
 

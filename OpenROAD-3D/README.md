@@ -1,142 +1,164 @@
-# OpenROAD-3D
+# OpenROAD-3D Evaluation Flows
 
-OpenROAD-3D is basically built upon OpenROAD-flow-scripts (ORFS), as described below.
+This directory contains the 3D backend evaluation flows for:
 
-[![Build Status](https://jenkins.openroad.tools/buildStatus/icon?job=OpenROAD-flow-scripts-Public%2Fpublic_tests_all%2Fmaster)](https://jenkins.openroad.tools/view/Public/job/OpenROAD-flow-scripts-Public/job/public_tests_all/job/master/)
-[![Docs](https://readthedocs.org/projects/openroad-flow-scripts/badge/?version=latest)](https://openroad-flow-scripts.readthedocs.io/en/latest/?badge=latest)
+- `lol` logic-on-logic (LoL) intergation with placements provided by ICCAD2022 and 2023 contest binaries.
+- `mol-analytical` memory-on-logic (MoL) integration with placements provided by our proposed mol-analytical placement method.
+- `mol-tiling` memory-on-logic (MoL) integration with placements provided by our proposed mol-tiling placement method.
 
-OpenROAD-flow-scripts (ORFS) is a fully autonomous, RTL-GDSII flow
-for rapid architecture and design space exploration, early prediction
-of QoR and detailed physical design implementation. However, ORFS
-also enables manual intervention for finer user control of individual
-flow stages through Tcl commands and Python APIs.
+All commands below should be run from `OpenROAD-3D/flow`.
 
-```mermaid
-%%{init: { 'logLevel': 'debug', 'theme': 'dark'
-  } }%%
-timeline
-  title RTL-GDSII Using OpenROAD-flow-scripts
-  Synthesis
-    : Inputs  [RTL, SDC, .lib, .lef]
-    : Logic Synthesis  (Yosys)
-    : Output files  [Netlist, SDC]
-  Floorplan
-    : Floorplan Initialization
-    : IO placement  (random)
-    : Timing-driven mixed-size placement
-    : Macro placement
-    : Tapcell and welltie insertion
-    : PDN generation
-  Placement
-    : Global placement without placed IOs
-    : IO placement  (optimized)
-    : Global placement with placed IOs
-    : Resizing and buffering
-    : Detailed placement
-  CTS : Clock Tree Synthesis
-    : Timing optimization
-    : Filler cell insertion
-  Routing
-    : Global Routing
-    : Detailed Routing
-  Finishing
-    : Metal Fill insertion
-    : Signoff timing report
-    : Generate GDSII  (KLayout)
-    : DRC/LVS check (KLayout)
+## Docker
+
+Pull the evaluation image with:
+
+```bash
+docker pull shiyunqi/open3dbench:eval
 ```
 
-## Tool Installation
+Start the evaluation container from [start_docker_eval.sh](./start_docker_eval.sh):
 
-### Docker Based Installation
-
-To ease dependency installation issues, ORFS uses docker images.
-Docker image includes ORFS binaries, applications as well as all
-required dependencies. All of the flow tools are encapsulated
-inside the container image.
-
-If `Docker` is not installed already, install latest docker tool
-based on OS from [here](https://docs.docker.com/engine/install/).
-
-To manage docker as non-root user and verify that you can run
-`docker` commands without `sudo` must complete steps from
-[here](https://docs.docker.com/engine/install/linux-postinstall/).
-
-#### Build ORFS with Docker
-
-Document for detailed steps on docker based installation found
-[here](./docs/user/BuildWithDocker.md).
-
-### Pre-built Binaries
-
-You can download, set up and run ORFS easily with pre-built
-binaries, including OpenROAD, Yosys and Klayout. See instructions
-[here](./docs/user/BuildWithPrebuilt.md).
-
-> **Thanks** to [Precision Innovations](https://precisioninno.com/) for
-> providing and supporting OpenROAD based binaries.
-
-> **Note** Only the latest version of OpenROAD is guaranteed to work with
-> the latest version of ORFS.
-
-> **Disclaimer** The versions of OpenROAD, Yosys and Klayout provided by
-> other third-party vendors are not guaranteed to work with ORFS.
-
-### Local Installation
-
-Document for detailed local installation steps found [here](./docs/user/BuildLocally.md).
-
-## Using the Flow
-
-- For details about the OpenROAD and the available features and
-  individual flows commands, see the documentation
-  [here](https://openroad.readthedocs.io/en/latest/).
-- For details about automated flow setup, see ORFS docs
-  [here](https://openroad-flow-scripts.readthedocs.io/en/latest/user/GettingStarted.html).
-- Flow tutorial to run the complete OpenROAD based flow from
-  RTL-GDSII, see the tutorial
-  [here](https://openroad-flow-scripts.readthedocs.io/en/latest/tutorials/FlowTutorial.html).
-- To watch ORFS flow tutorial videos, check
-  [here](https://theopenroadproject.org/video).
-
-## Citing this Work
-
-If you use this software in any published work, we would appreciate a citation!
-Please use the following references:
-
-```
-@article{ajayi2019openroad,
-  title={OpenROAD: Toward a Self-Driving, Open-Source Digital Layout Implementation Tool Chain},
-  author={Ajayi, T and Blaauw, D and Chan, TB and Cheng, CK and Chhabria, VA and Choo, DK and Coltella, M and Dobre, S and Dreslinski, R and Foga{\c{c}}a, M and others},
-  journal={Proc. GOMACTECH},
-  pages={1105--1110},
-  year={2019}
-}
+```bash
+cd OpenROAD-3D
+./start_docker_eval.sh
 ```
 
-A copy of this paper is available
-[here](http://people.ece.umn.edu/users/sachin/conf/gomactech19.pdf) (PDF).
+That script is the shared evaluation entry point for both LoL and MoL. It mounts `OpenROAD-3D` and `Place-LoL` separately and exports `PLACE_LOL_ROOT=/workspace/Place-LoL` inside the container, so the LoL configs can read DEFs from `Place-LoL/binaries/converted_output/...`.
 
+## Layout
+
+```text
+OpenROAD-3D/
+└── flow/
+    ├── run_lol_iccad2022.sh              # run the OpenROAD + HotSpot LoL evaluation flow for ICCAD 2022 placers
+    ├── run_lol_iccad2023.sh              # run the OpenROAD + HotSpot LoL evaluation flow for ICCAD 2023 placers
+    ├── run_mol_analytical.sh              # run the full backend implementation + HotSpot flow for mol-analytical
+    ├── run_mol_tiling.sh                  # run the full backend implementation + HotSpot flow for mol-tiling
+    ├── export_mol_defs_from_place_mol.sh  # copy DEFs generated by Place-MoL into a separate evaluation-pack directory
+    ├── evaluation_pack/                   # standard DEF inputs to reproduce the original paper results
+    └── evaluation_pack_custom/            # optional custom DEF inputs exported from Place-MoL
 ```
-@inproceedings{ajayi2019toward,
-  title={Toward an open-source digital flow: First learnings from the openroad project},
-  author={Ajayi, Tutu and Chhabria, Vidya A and Foga{\c{c}}a, Mateus and Hashemi, Soheil and Hosny, Abdelrahman and Kahng, Andrew B and Kim, Minsoo and Lee, Jeongsup and Mallappa, Uday and Neseem, Marina and others},
-  booktitle={Proceedings of the 56th Annual Design Automation Conference 2019},
-  pages={1--4},
-  year={2019}
-}
+
+## LoL Evaluation
+
+`OpenROAD-3D` reads LoL DEFs directly from `Place-LoL`. The LoL design configs use:
+
+```text
+Place-LoL/binaries/converted_output/<variant>/<method>/*.def
 ```
 
-A copy of this paper is available
-[here](https://vlsicad.ucsd.edu/Publications/Conferences/371/c371.pdf) (PDF).
+where:
 
-If you like the tools, please give us a star on our GitHub repos!
+- `variant` is either `default` or `inflated`
+- `method` is the selected placer name, such as `cadb1021`, `cadb1038`, or `tcad25`
 
-## License
+If you use the pre-generated artifacts already included in `Place-LoL`, you can run the evaluation directly without reproducing the LoL placement pipeline.
 
-The OpenROAD-flow-scripts repository (build and run scripts) has a BSD 3-Clause License.
-The flow relies on several tools, platforms and designs that each have their own licenses:
+Typical commands:
 
-- Find the tool license at: `OpenROAD-flow-scripts/tools/{tool}/` or `OpenROAD-flow-scripts/tools/OpenROAD/src/{tool}/`.
-- Find the platform license at: `OpenROAD-flow-scripts/flow/platforms/{platform}/`.
-- Find the design license at: `OpenROAD-flow-scripts/flow/designs/src/{design}/`.
+```bash
+cd OpenROAD-3D/flow
+./run_lol_iccad2022.sh <default|inflated> <method>
+./run_lol_iccad2023.sh <default|inflated> <method>
+```
+
+Example using the `tcad25` placer:
+
+```bash
+cd OpenROAD-3D/flow
+./run_lol_iccad2023.sh default tcad25
+```
+
+If you want to reproduce the full LoL pipeline yourself, follow the steps in `Place-LoL` first:
+
+1. generate LoL inputs in `Place-LoL`
+2. run a LoL placer in `Place-LoL/binaries/`
+3. convert the placer outputs into DEFs in `Place-LoL`
+4. evaluate the resulting DEFs in `OpenROAD-3D`
+
+### LoL Outputs
+
+For LoL evaluation, final experiment logs are archived under:
+
+- `logs/nangate45_3D/<design>/<method>_<variant>/`
+
+Intermediate work directories are created under:
+
+- `logs/nangate45_3D/<design>/lol/`
+- `results/nangate45_3D/<design>/lol/`
+
+The archived directories contain the runtime log and copied evaluation artifacts such as generated PNGs and HotSpot outputs when available.
+
+## MoL Evaluation
+
+There are two supported ways to provide DEFs for the MoL experiments.
+
+### Option 1: Use the packaged evaluation DEFs
+
+If you want to reproduce the results reported in our paper, first download `evaluation_pack.tar.gz` from [Google Drive](https://drive.google.com/file/d/19ypJmK_8yvWz7MN-qbyokmuoW0faEekm/view?usp=sharing) and extract it under `OpenROAD-3D/flow` as `evaluation_pack/`:
+
+```bash
+cd OpenROAD-3D/flow
+wget -O evaluation_pack.tar.gz 'https://drive.google.com/uc?export=download&id=19ypJmK_8yvWz7MN-qbyokmuoW0faEekm'
+tar -xzf evaluation_pack.tar.gz
+```
+
+The run scripts read DEFs from:
+
+- `evaluation_pack/mol-analytical/*.def`
+- `evaluation_pack/mol-tiling/*.def`
+
+If you want to reproduce the results reported in our paper, you can run the flow directly without any extra step.
+
+```bash
+cd OpenROAD-3D/flow
+./run_mol_analytical.sh
+./run_mol_tiling.sh
+```
+
+Both scripts point to `evaluation_pack`.
+
+### Option 2: Use DEFs generated by Place-MoL
+
+`Place-MoL` can generate final DEFs under:
+
+- `Place-MoL/results/mol-analytical/mol_final/<design>_suffixed.def`
+- `Place-MoL/results/mol-tiling/mol_final/<design>_suffixed.def`
+
+The OpenROAD mol scripts do not read those files directly. They read from a pack root on disk. By default that pack root is `evaluation_pack/`, but you can point them to a separate custom pack such as `evaluation_pack_custom/`.
+
+If you are following this custom-DEF workflow, you do not need to download `evaluation_pack.tar.gz`.
+
+To avoid overwriting the standard reproducibility inputs, the export script writes to `evaluation_pack_custom/` by default. Because of that, the recommended workflow is:
+
+1. Follow the instructions in `Place-MoL` to generate the custom MoL DEFs.
+2. Export the generated DEFs into `OpenROAD-3D/flow/evaluation_pack_custom/<method>/`.
+3. Run the OpenROAD evaluation flow with `evaluation_pack_custom` as the pack root.
+
+Example:
+
+```bash
+cd OpenROAD-3D/flow
+./export_mol_defs_from_place_mol.sh mol-analytical
+./run_mol_analytical.sh evaluation_pack_custom
+```
+
+```bash
+cd OpenROAD-3D/flow
+./export_mol_defs_from_place_mol.sh mol-tiling
+./run_mol_tiling.sh evaluation_pack_custom
+```
+
+### MoL Outputs
+
+For MoL evaluation, final experiment logs are archived under:
+
+- `logs/nangate45_3D/<design>/mol-analytical/`
+- `logs/nangate45_3D/<design>/mol-tiling/`
+
+Intermediate work directories are created under:
+
+- `logs/nangate45_3D/<design>/mol/`
+- `results/nangate45_3D/<design>/mol/`
+
+The archived directories contain the runtime log and copied evaluation artifacts such as generated PNGs and HotSpot outputs when available.

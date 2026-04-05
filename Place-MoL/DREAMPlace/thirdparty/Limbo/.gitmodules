@@ -1,0 +1,3 @@
+[submodule "limbo/thirdparty/OpenBLAS"]
+	path = limbo/thirdparty/OpenBLAS
+	url = https://github.com/xianyi/OpenBLAS.git

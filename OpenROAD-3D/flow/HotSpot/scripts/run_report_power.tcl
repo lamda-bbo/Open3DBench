@@ -16,7 +16,7 @@ link_design $env(NAME)
 read_sdc $env(FINAL_SDC)
 
 # Read the SPEF file
-read_spef $env(FINAL_SPEF)
+read_spef $env(FINAL_SPEF) >> log.tmp
 
 # Set the power activity
 set_power_activity -input -activity 0.1
@@ -101,13 +101,63 @@ for {set i 0} {$i < $grid_size} {incr i} {
             # Run the report_power command for the grid with the full instance string
             report_power -instances $instance_string >> $report_filename
 
+            if {$i < 10} {
+                # 1. 读取文件所有内容
+                set fp [open $report_filename r]
+                set file_data [read $fp]
+                close $fp
+
+                set lines [split $file_data "\n"]
+                set new_lines {}
+
+                # 2. 遍历并过滤
+                foreach line $lines {
+                    # 跳过空行
+                    if {[string trim $line] eq ""} { continue }
+
+                    # 按空白字符分割行内容
+                    set cols [regexp -all -inline {\S+} $line]
+
+                    # 检查是否为有效的数据行：
+                    # 至少有5列，且第4列(索引3，Total Power)必须是数字，避免误删表头
+                    set keep_line 1
+                    if {[llength $cols] >= 5 && [string is double [lindex $cols 3]]} {
+                        set total_pwr [lindex $cols 3]
+                        set inst_name [lindex $cols 4]
+
+                        # 核心判断：Instance以max_cap开头 且 Total Power > 1e-4
+                        if {[string match "max_cap*" $inst_name] && $total_pwr > 1e-2} {
+                            set keep_line 0
+                            puts "Info: Removing high-power max_cap cell: $inst_name with Total Power: $total_pwr"
+                        }
+
+                        if {$env(NAME) == "bp_fe_top" && $total_pwr > 2e-3} {
+                            set keep_line 0
+                            puts "Finding cell: $inst_name with Total Power: $total_pwr"
+                        }
+                    }
+
+                    # 3. 如果不需要删除，则保留该行
+                    if {$keep_line} {
+                        lappend new_lines $line
+                    }
+                }
+
+                # 4. 将过滤后的内容写回文件（原地修改）
+                set fp [open $report_filename w]
+                puts $fp [join $new_lines "\n"]
+                close $fp
+                
+                puts "Info: Filtered high-power max_cap cells in $report_filename"
+            }
+
             # Output to the console
             # puts "Report for Grid_($i, $j) written to $report_filename"
 
             # Sum the "Total Power" column in the report and scale it by 100
             set total_power [expr {[sum_total_power $report_filename] * 10}]
 
-            # report_filename��ȡ��Ϻ�ɾ�����ļ�
+            # report_filename
             file delete $report_filename
 
             # Add the grid name and total power to the respective lists

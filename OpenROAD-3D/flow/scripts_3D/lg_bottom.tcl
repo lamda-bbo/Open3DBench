@@ -4,6 +4,6 @@ foreach lef_file $all_lefs {
 }
 read_def $env(RESULTS_DIR)/bottom.def
 save_image -resolution 1 $::env(RESULTS_DIR)/bottom_berfore_legalized.webp 
-detailed_placement
+detailed_placement -max_displacement 300
 save_image -resolution 1 $::env(RESULTS_DIR)/bottom_legalized.webp 
 write_def $env(RESULTS_DIR)/bottom_legalized.def

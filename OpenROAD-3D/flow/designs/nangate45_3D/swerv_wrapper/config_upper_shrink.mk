@@ -3,7 +3,7 @@ export PLATFORM    = nangate45_3D
 
 export SYNTH_HIERARCHICAL = 1
 export RTLMP_FLOW = 0
-export FLOW_VARIANT = 3D
+export FLOW_VARIANT ?= 3D
 #
 # RTL_MP Settings
 export RTLMP_MAX_INST = 30000

@@ -26,7 +26,16 @@ global_route -guide_file $env(RESULTS_DIR)/route.guide \
                {*}[expr {[info exists ::env(GLOBAL_ROUTE_ARGS)] ? $::env(GLOBAL_ROUTE_ARGS) : \
                {-congestion_iterations 2 -congestion_report_iter_step 5 -verbose}}]
 
-set_propagated_clock [all_clocks]
+if {[info exist env(IDEAL_CLOCK)]} {
+  set_ideal_network [all_clocks]
+  set_false_path -through rst_ni
+  set_false_path -through reset_i
+  set_false_path -through reset_l
+  set_false_path -through p_clk_async_reset_i
+} else {
+  set_propagated_clock [all_clocks]
+}
+
 estimate_parasitics -global_routing
 
 # if { [info exists ::env(RECOVER_POWER)] } {

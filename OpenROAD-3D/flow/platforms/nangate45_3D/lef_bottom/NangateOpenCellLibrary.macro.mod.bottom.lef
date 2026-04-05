@@ -2,6 +2,58 @@ VERSION 5.6 ;
 BUSBITCHARS "[]" ;
 DIVIDERCHAR "/" ;
 
+MACRO HBT_BOTIN                                  
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  FOREIGN HBT_BOTIN 0 0 ;                         
+  SIZE 1.0 BY 1.0 ;
+  SYMMETRY X Y ;
+  SITE FreePDK45_38x28_10R_NP_162NW_34O ;
+  PIN TOP
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER metal11 ;
+        RECT 0 0 1.0 1.0 ;
+    END
+  END TOP
+  PIN BOT
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER metal10 ;
+        RECT 0 0 1.0 1.0 ;
+    END
+    MUSTJOIN TOP ;
+  END BOT
+END HBT_BOTIN           
+
+MACRO HBT_TOPIN                                  
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  FOREIGN HBT_TOPIN 0 0 ;                         
+  SIZE 1.0 BY 1.0 ;
+  SYMMETRY X Y ;
+  SITE FreePDK45_38x28_10R_NP_162NW_34O ;
+  PIN TOP
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER metal11 ;
+        RECT 0 0 1.0 1.0 ;
+    END
+  END TOP
+  PIN BOT
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER metal10 ;
+        RECT 0 0 1.0 1.0 ;
+    END
+    MUSTJOIN TOP ;
+  END BOT
+END HBT_TOPIN   
+
 MACRO TSV
   CLASS CORE ;               
   ORIGIN 0 0 ;                

@@ -1,0 +1,70 @@
+{
+  "method": "mem-on-logic",
+  
+  "partition_params": {
+    "method": "GNN",
+    "scale_factor": 0.8,
+    "error": 0.1,
+    "connection_sort_order": "ascending",
+    "top_k_ratio": 0.3,
+    "area_balance_error": 0.1,
+    "GNN": {
+      "num_epochs": 20,
+      "learning_rate": 0.001,
+      "hidden_dim": 128,
+      "embedding_dim": 64,
+      "num_layers": 3,
+      "dropout": 0.1,
+      "temperature": 0.07,
+      "n_clusters": 2
+    }
+  },
+  
+  "enable_bottom_die_refinement": true,
+  
+  "macro_refine_params": {
+    "hpwl_weight": 1.0,
+    "regularity_weight": 100.0,
+    "overlap_weight_init": 0.0,
+    "overlap_weight": 1.0,
+    "overlap_weight_alpha": 1.0,
+    "learning_rate": 1.0,
+    "iterations": 500,
+    "plot_interval": 50,
+    "wa_gamma": 100.0,
+    "hpwl_max_group_size": 1000,
+    "learning_rate_decay": 0.9,
+    "learning_rate_decay_interval": null,
+    "learning_rate_min": 0.001,
+    "lr_plateau_patience": 50,
+    "continue_until_no_overlap": true,
+    "overlap_threshold": 0.1,
+    "max_extra_iterations": 1000
+  },
+  
+  "macro_place_params": {
+    "hpwl_weight": 1.0,
+    "overlap_weight_init": 0.0,
+    "overlap_weight": 1.0,
+    "overlap_weight_alpha": 1.0,
+    "learning_rate": 1.0,
+    "iterations": 1000,
+    "plot_interval": 50,
+    "wa_gamma": 100.0,
+    "hpwl_max_group_size": 1000,
+    "learning_rate_decay": 0.9,
+    "learning_rate_decay_interval": null,
+    "learning_rate_min": 0.001,
+    "lr_plateau_patience": 50,
+    "continue_until_no_overlap": true,
+    "overlap_threshold": 0.1,
+    "max_extra_iterations": 1000
+  },
+  
+  "macro_legalize_params": {
+    "grid_size": 224,
+    "regularity_weight": 5.0,
+    "neighbor_size_bottom": 1000,
+    "neighbor_size_upper": 500
+  }
+}
