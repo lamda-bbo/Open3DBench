@@ -7,26 +7,31 @@
 
 ## Getting Started
 
-Pull the Docker image:
+Pull the Docker image (it is shared with Place-MoL, so if you have pulled one during Place-MoL, you don't have to pull again here):
 
 ```bash
 docker pull shiyunqi/open3dbench:place
 ```
 
-Download `benchmarks_lol.tar.gz` from [Google Drive](https://drive.google.com/file/d/1wVYCgee2k7_1JdmV4o6Q4sIgDpoCkAcn/view?usp=sharing) and extract it under the current directory as `benchmarks/`:
+Download `benchmarks_lol.tar.gz` from [Google Drive](https://drive.google.com/file/d/1wVYCgee2k7_1JdmV4o6Q4sIgDpoCkAcn/view?usp=sharing) and extract it under the current directory:
+
+The downloaded file is `benchmarks_lol.tar.gz`. After extraction and renaming, the directory should be `benchmarks/`.
 
 ```bash
 cd Place-LoL
 wget -O benchmarks_lol.tar.gz 'https://drive.google.com/uc?export=download&id=1wVYCgee2k7_1JdmV4o6Q4sIgDpoCkAcn'
-tar -xzf benchmarks_lol.tar.gz
+tar -xzf benchmarks_lol.tar.gz -C .
+mv benchmarks_lol benchmarks
 ```
 
-Download `binaries.tar.gz` from [Google Drive](https://drive.google.com/file/d/1QA2zse8jm1pD3OZ3aOPU08T47cPj-xSe/view?usp=sharing) and extract it under the current directory as `binaries/`:
+Download `binaries.tar.gz` from [Google Drive](https://drive.google.com/file/d/1HHbYQmv12SQ_xUKSnKMVI6RVyX3Z8hPf/view?usp=sharing) and extract it under the current directory:
+
+The downloaded file is `binaries.tar.gz`. After extraction and renaming, the directory should be `binaries/`.
 
 ```bash
 cd Place-LoL
-wget -O binaries.tar.gz 'https://drive.google.com/file/d/1QA2zse8jm1pD3OZ3aOPU08T47cPj-xSe/view?usp=sharing'
-tar -xzf binaries.tar.gz
+wget -O binaries.tar.gz 'https://drive.google.com/file/d/1HHbYQmv12SQ_xUKSnKMVI6RVyX3Z8hPf/view?usp=sharing'
+tar -xzf binaries.tar.gz -C .
 ```
 
 Enter the container from the `Place-LoL` root:
@@ -109,13 +114,9 @@ As one concrete example, this repository includes the `tcad25` placer under [Pla
 Examples:
 
 ```bash
-cd Place-LoL/binaries/iccad2022/cadb1021
-# run the vendor-provided placer using files under input/
-```
-
-```bash
 cd Place-LoL/binaries/iccad2023/tcad25
 bash run.sh default
+bash run.sh inflated
 ```
 
 At this stage, each placer is expected to write its raw results into its own `output/` directory.
@@ -127,12 +128,17 @@ cd Place-LoL
 bash convert_output.sh <design|iccad2022_all|iccad2023_all> <method> <default|inflated>
 ```
 
+Use matching ICCAD 2022 or ICCAD 2023 combinations only:
+
+- ICCAD 2022: designs `aes`, `dynamic_node`, `ibex`, `jpeg`, `swerv`; methods `cadb1021`, `cadb1051`
+- ICCAD 2023: designs `ariane133`, `ariane136`, `bp`, `bp_be`, `bp_fe`, `bp_multi`, `bp_quad`, `swerv_wrapper`; methods `cadb0013`, `cadb1038`, `cadb1049`, `tcad25`
+
 Examples:
 
 ```bash
 bash convert_output.sh aes cadb1021 default
 bash convert_output.sh iccad2022_all cadb1051 default
-bash convert_output.sh iccad2023_all cadb1038 default
+bash convert_output.sh ariane133 cadb1038 default
 bash convert_output.sh iccad2023_all tcad25 inflated
 ```
 

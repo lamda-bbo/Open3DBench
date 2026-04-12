@@ -28,7 +28,7 @@ run_task() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Finished task: ${design_fullname}. Open3D Runtime: ${open3d_rt}s, HotSpot Runtime: ${hotspot_rt}s" >> "$runtime_log"
     echo "-----------------------------------------------------" >> "$runtime_log"
 
-    rm -r logs/nangate45_3D/${design_shortname}/${method}_${variant}
+    rm -rf logs/nangate45_3D/${design_shortname}/${method}_${variant}
     mv logs/nangate45_3D/${design_shortname}/lol logs/nangate45_3D/${design_shortname}/${method}_${variant}
     mv results/nangate45_3D/${design_shortname}/lol/*.png logs/nangate45_3D/${design_shortname}/${method}_${variant}/
     mv results/nangate45_3D/${design_shortname}/lol/hotspot_outputs logs/nangate45_3D/${design_shortname}/${method}_${variant}/
