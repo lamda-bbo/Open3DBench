@@ -1,0 +1,6 @@
+if(PARSER_LEF_ADAPT)
+  add_subdirectory(5.8/lef)
+endif(PARSER_LEF_ADAPT)
+if(PARSER_DEF_ADAPT)
+  add_subdirectory(5.8/def)
+endif(PARSER_DEF_ADAPT)

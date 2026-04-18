@@ -1,0 +1,1 @@
+sudo docker run --gpus all -it -v $(pwd):/workspace shiyunqi/open3dbench:place bash
