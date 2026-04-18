@@ -1,6 +1,0 @@
-
-The following is a list of much appreciated contributors:
-
-
-John Weaver <github@saebyn.info>
-Gluttton <gluttton@ukr.net>

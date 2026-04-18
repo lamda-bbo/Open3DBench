@@ -1,4 +1,4 @@
-# Open3DBench
+# Open3DBench v1.1
 
 Official implementation of the paper ["Open3DBench: Open-Source Benchmark for 3D-IC Backend Implementation and PPA Evaluation"](https://arxiv.org/abs/2503.12946).
 
@@ -10,6 +10,20 @@ This repository provides an open-source benchmarking framework for 3D-IC placeme
 At the framework level, Open3DBench extends the original 2D `NanGate45` setup into `NanGate45_3D`, using duplicated metal layers to emulate a two-tier stacked routing environment within a unified 3D backend flow.
 
 For `MoL`, we model HBTs as vias so that standard routing engines can handle them directly during backend implementation; for `LoL`, we model HBTs as virtual buffers and explicitly account for their locations during placement and legalization.
+
+## About This Release
+
+This repository is maintained as **Open3DBench v1.1**, a major updated release based on the original [Open3DBench](https://github.com/lamda-bbo/Open3DBench) repository.
+
+- `v1.0` contributors:
+  - `Yunqi Shi, maintainer (shiyq@lamda.nju.edu.cn)`
+  - `Chengrui Gao, MoL Placement developer (gaocr@lamda.nju.edu.cn)`
+- `v1.1` contributors:
+  - `Yunqi Shi, maintainer (shiyq@lamda.nju.edu.cn)`
+  - `Chengrui Gao, MoL Placement contributor (gaocr@lamda.nju.edu.cn)`
+  - `Peng Xie, developer (xiep@lamda.nju.edu.cn)`
+
+Users who would like to refer to the earlier release line should consult the corresponding `v1.0` snapshot or tag when it is published alongside this repository. This `v1.1` branch/release is intended to be the main entry point for the updated framework.
 
 ## What's New In This Version
 
@@ -110,6 +124,24 @@ The typical `LoL` workflow is:
 If you use the pre-generated LoL artifacts already included in this repository, you can skip the LoL reproduction steps and directly run the backend evaluation.
 
 For concrete commands, benchmark variants, supported placers, and evaluation scripts, please refer to [Place-LoL](/home/xiaosi/hdd/shiyq/Open3DBench-release/Place-LoL/README.md) and [OpenROAD-3D](/home/xiaosi/hdd/shiyq/Open3DBench-release/OpenROAD-3D/README.md).
+
+## Acknowledgments
+
+In the new release, we sincerely thank the following people, listed in alphabetical order, for generously sharing winning contest binaries for our evaluation. Many of them also provided highly specific help and invested substantial time and effort in supporting this work.
+
+- `Prof. Bei Yu (byu@cse.cuhk.edu.hk)`
+- `Yan-Jen Chen (yjchen@eda.ee.ntu.edu.tw)`
+- `Dr. Peiyu Liao (enzoliao95@gmail.com)`
+- `Liang Xiao (lxiao23@cse.cuhk.edu.hk)`
+- `Xueyan Zhao (zhaoxueyan21b@ict.ac.cn)`
+- `Dr. Yuxuan Zhao (yxzhao21@cse.cuhk.edu.hk)`
+
+We also especially thank:
+
+- `Yuhao Ji (1155224012@link.cuhk.edu.hk)`
+- `Prof. Zhiang Wang (zhiangwang@fudan.edu.cn)`
+
+for their discussions and help during the development of the new release.
 
 ## Citation
 
