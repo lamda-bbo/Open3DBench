@@ -162,5 +162,9 @@ if {![info exists save_checkpoint] || $save_checkpoint} {
   write_def $::env(RESULTS_DIR)/4_1_cts.def
   write_db $::env(RESULTS_DIR)/4_1_cts.odb
   write_sdc $::env(RESULTS_DIR)/4_cts.sdc
-  save_image -resolution 1 $::env(RESULTS_DIR)/placement.webp 
+  if {[info commands gui::DisplayControlMap] ne ""} {
+    save_image -resolution 1 $::env(RESULTS_DIR)/placement.webp
+  } else {
+    puts "Skipping CTS placement image: OpenROAD was built without GUI support."
+  }
 }

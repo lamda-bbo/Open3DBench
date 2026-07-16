@@ -1,13 +1,11 @@
-# Convert placed HBT COVER buffers into fixed hb_layer routing vias before DRT.
+# Convert routed HBT COVER buffers into one fixed hb_layer via after DRT.
 #
 # GR phase keeps HBT_* / LS_HBT_* instances as pin targets for global routing.
-# DR phase replaces each buffer with hb_layer_0 at the same location:
-#   1) copy {net}_TOP guides onto {net}_BOT
-#   2) merge {net}_TOP into {net}_BOT
-#   3) destroy the HBT instance
-#   4) insert a FIXED hb_layer via at the buffer center on the merged net
+# After DR, each buffer is replaced at the same location by:
+#   1) a single net containing both routed subnet dbWires and all terminals
+#   2) one FIXED hb_layer_0 via connecting metal10 to metal11
 #
-# Enabled when MOL_HBT=1 (Makefile sets PRE_DETAIL_ROUTE_TCL).
+# Invoke after detailed routing and before the final unified DRC check.
 # Disabled only when HBT_CONVERT_TO_VIA=0.
 
 proc find_hbt_dr_via { tech } {
@@ -43,38 +41,56 @@ proc hbt_inst_center { inst } {
   return [list [expr {$ox + $mx / 2}] [expr {$oy + $my / 2}]]
 }
 
-proc copy_guides_to_net { from_net to_net } {
-  # dbGuide has no setNet; recreate guides on the survivor net before mergeNet
-  # destroys the donor net (and its guides).
-  set copies {}
-  foreach guide [$from_net getGuides] {
-    set box [$guide getBox]
-    lappend copies [list \
-      [$guide getLayer] \
-      [$guide getViaLayer] \
-      [$box xMin] [$box yMin] [$box xMax] [$box yMax] \
-      [$guide isCongested]]
+proc append_net_wire { dst_net src_net } {
+  set src_wire [$src_net getWire]
+  if {$src_wire eq "NULL"} {
+    return
   }
-  foreach item $copies {
-    lassign $item layer via_layer x1 y1 x2 y2 congested
-    set rect [odb::Rect]
-    $rect init $x1 $y1 $x2 $y2
-    if {$via_layer eq "NULL"} {
-      odb::dbGuide_create $to_net $layer NULL $rect $congested
-    } else {
-      odb::dbGuide_create $to_net $layer $via_layer $rect $congested
+  set dst_wire [$dst_net getWire]
+  if {$dst_wire eq "NULL"} {
+    set dst_wire [odb::dbWire_create $dst_net]
+  }
+  # dbWire::append copies the encoded paths and fixes donor junction ids.
+  $dst_wire append $src_wire 0
+}
+
+proc merge_hbt_subnets { block bot_net top_net base_name source_net } {
+  # Preserve the source-side dbWire as the root of the merged network.  This
+  # keeps RC extraction anchored at a real driver/BTerm instead of an empty
+  # legacy base net.
+  set survivor $source_net
+  set base_net [$block findNet $base_name]
+  set donors [list $bot_net $top_net]
+  if {$base_net ne "NULL"} {
+    lappend donors $base_net
+  }
+
+  foreach donor $donors {
+    if {$donor eq $survivor} {
+      continue
     }
+    if {![$survivor canMergeNet $donor]} {
+      utl::error MOL 504 "Cannot merge HBT subnet [$donor getName] into [$survivor getName]."
+    }
+    append_net_wire $survivor $donor
+    $survivor mergeNet $donor
   }
+
+  if {[$survivor getName] ne $base_name && ![$survivor rename $base_name]} {
+    utl::error MOL 506 "Failed to rename merged HBT net to '$base_name'."
+  }
+  return $survivor
 }
 
 proc add_fixed_hbt_via { net tech_via m10 cx cy } {
-  set existing_wire [$net getWire]
-  if {$existing_wire ne "NULL"} {
-    odb::dbWire_destroy $existing_wire
-  }
-  set wire [odb::dbWire_create $net]
+  set wire [$net getWire]
   set enc [odb::dbWireEncoder]
-  $enc begin $wire
+  if {$wire eq "NULL"} {
+    set wire [odb::dbWire_create $net]
+    $enc begin $wire
+  } else {
+    $enc append $wire
+  }
   $enc newPath $m10 "FIXED"
   $enc addPoint $cx $cy
   $enc addTechVia $tech_via
@@ -97,7 +113,6 @@ proc convert_hbt_buffers_to_vias {} {
   if {$m10 eq "NULL"} {
     utl::error MOL 503 "metal10 not found for HBT via conversion."
   }
-
   set hbt_insts {}
   foreach inst [$block getInsts] {
     set name [$inst getName]
@@ -108,6 +123,18 @@ proc convert_hbt_buffers_to_vias {} {
 
   set converted 0
   set skipped 0
+  set report_file ""
+  if {[info exists ::env(HBT_MERGE_REPORT)] && $::env(HBT_MERGE_REPORT) ne ""} {
+    set report_file $::env(HBT_MERGE_REPORT)
+  } elseif {[info exists ::env(RESULTS_DIR)] && $::env(RESULTS_DIR) ne ""} {
+    set report_file $::env(RESULTS_DIR)/hbt_net_merge.tsv
+  }
+  set report_fp ""
+  if {$report_file ne ""} {
+    set report_fp [open $report_file w]
+    puts $report_fp "merged_net\tbot_net\ttop_net\tsource_net\tx\ty\tvia"
+  }
+
   foreach inst $hbt_insts {
     set bot_net "NULL"
     set top_net "NULL"
@@ -136,15 +163,29 @@ proc convert_hbt_buffers_to_vias {} {
       continue
     }
 
+    set base_name [string range $bot_name 0 end-4]
+    set master_name [[$inst getMaster] getName]
+    if {[string match *TOPIN* $master_name]} {
+      set source_net $top_net
+    } else {
+      set source_net $bot_net
+    }
     lassign [hbt_inst_center $inst] cx cy
-    copy_guides_to_net $top_net $bot_net
-    $bot_net mergeNet $top_net
+    set source_name [$source_net getName]
+    set merged_net [merge_hbt_subnets $block $bot_net $top_net $base_name $source_net]
     odb::dbInst_destroy $inst
-    add_fixed_hbt_via $bot_net $tech_via $m10 $cx $cy
+    add_fixed_hbt_via $merged_net $tech_via $m10 $cx $cy
+    if {$report_fp ne ""} {
+      puts $report_fp "$base_name\t$bot_name\t$top_name\t$source_name\t$cx\t$cy\t[$tech_via getName]"
+    }
     incr converted
   }
 
-  puts "HBT buffer -> via: converted=$converted skipped=$skipped via=[$tech_via getName]"
+  if {$report_fp ne ""} {
+    close $report_fp
+  }
+
+  puts "HBT buffer -> merged net + single fixed via: converted=$converted skipped=$skipped via=[$tech_via getName]"
 }
 
 convert_hbt_buffers_to_vias

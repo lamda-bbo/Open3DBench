@@ -125,7 +125,7 @@ def default_aligned_hbt_grid() -> AlignedHbtGrid:
 DEFAULT_ALIGNED_GRID = default_aligned_hbt_grid()
 DEFAULT_GRID_X_DBU = DEFAULT_ALIGNED_GRID.search_step_x
 DEFAULT_GRID_Y_DBU = DEFAULT_ALIGNED_GRID.search_step_y
-# 导出默认 HBT pitch，供测试与外部脚本读取。
+# Export the default HBT pitch for tests and external scripts.
 HBT_PITCH_DBU = DEFAULT_ALIGNED_GRID.hbt_pitch_x
 
 
@@ -169,6 +169,40 @@ class OccupiedRect:
             or self.y2 <= other.y1
             or other.y2 <= self.y1
         )
+
+
+class HbtOccupancyIndex:
+    """Spatial index for exact HBT center-spacing checks."""
+
+    def __init__(self, *, pitch: int, size: int) -> None:
+        if pitch <= 0:
+            raise ValueError(f"HBT pitch must be positive, got {pitch}")
+        self.pitch = pitch
+        self.size = size
+        self._buckets: dict[tuple[int, int], list[tuple[int, int]]] = {}
+
+    def _bucket(self, center: tuple[int, int]) -> tuple[int, int]:
+        return (center[0] // self.pitch, center[1] // self.pitch)
+
+    def add(self, origin: tuple[int, int]) -> None:
+        center = hbt_center_from_origin(origin[0], origin[1], size=self.size)
+        self._buckets.setdefault(self._bucket(center), []).append(center)
+
+    def violates_pitch(self, origin: tuple[int, int]) -> bool:
+        center = hbt_center_from_origin(origin[0], origin[1], size=self.size)
+        bucket_x, bucket_y = self._bucket(center)
+        pitch_sq = self.pitch * self.pitch
+        for delta_x in (-1, 0, 1):
+            for delta_y in (-1, 0, 1):
+                for occupied_x, occupied_y in self._buckets.get(
+                    (bucket_x + delta_x, bucket_y + delta_y),
+                    (),
+                ):
+                    dx = center[0] - occupied_x
+                    dy = center[1] - occupied_y
+                    if dx * dx + dy * dy < pitch_sq:
+                        return True
+        return False
 
 
 def parse_core_bbox_from_env() -> CoreBbox:
@@ -337,6 +371,7 @@ def greedy_hbt_position(
     core: CoreBbox,
     occupied: tuple[tuple[int, int], ...] = (),
     aligned_grid: AlignedHbtGrid | None = None,
+    occupancy_index: HbtOccupancyIndex | None = None,
 ) -> tuple[int, int]:
     """Pick a legal hub minimizing combined subnet bounding-box HPWL (greedy per net)."""
     grid = aligned_grid if aligned_grid is not None else DEFAULT_ALIGNED_GRID
@@ -351,12 +386,16 @@ def greedy_hbt_position(
             continue
         if not grid.center_on_metal_track(hub):
             continue
-        if violates_hbt_pitch(
-            hub,
-            occupied,
-            pitch=grid.hbt_pitch_x,
-            size=grid.hbt_size,
-        ):
+        if occupancy_index is not None:
+            pitch_violation = occupancy_index.violates_pitch(hub)
+        else:
+            pitch_violation = violates_hbt_pitch(
+                hub,
+                occupied,
+                pitch=grid.hbt_pitch_x,
+                size=grid.hbt_size,
+            )
+        if pitch_violation:
             continue
         return hub
 
@@ -373,12 +412,16 @@ def greedy_hbt_position(
             hub = (hx, hy)
             if not grid.center_on_metal_track(hub):
                 continue
-            if violates_hbt_pitch(
-                hub,
-                occupied,
-                pitch=grid.hbt_pitch_x,
-                size=grid.hbt_size,
-            ):
+            if occupancy_index is not None:
+                pitch_violation = occupancy_index.violates_pitch(hub)
+            else:
+                pitch_violation = violates_hbt_pitch(
+                    hub,
+                    occupied,
+                    pitch=grid.hbt_pitch_x,
+                    size=grid.hbt_size,
+                )
+            if pitch_violation:
                 continue
             return hub
 
@@ -397,7 +440,10 @@ def greedy_placements_for_nets(
         core if core is not None else parse_core_bbox_from_env(),
         grid,
     )
-    occupied: list[tuple[int, int]] = []
+    occupancy_index = HbtOccupancyIndex(
+        pitch=grid.hbt_pitch_x,
+        size=grid.hbt_size,
+    )
     order = sorted(
         range(len(net_specs)),
         key=lambda idx: (
@@ -409,15 +455,14 @@ def greedy_placements_for_nets(
 
     for idx in order:
         bottom_xy, top_xy, _ = net_specs[idx]
-        frozen_occupied = tuple(occupied)
         hub = greedy_hbt_position(
             bottom_xy,
             top_xy,
             core=bbox,
-            occupied=frozen_occupied,
             aligned_grid=grid,
+            occupancy_index=occupancy_index,
         )
         placements[idx] = hub
-        occupied.append(hub)
+        occupancy_index.add(hub)
 
     return placements

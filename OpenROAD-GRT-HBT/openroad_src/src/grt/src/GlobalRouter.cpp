@@ -389,6 +389,47 @@ void GlobalRouter::globalRoute(bool save_guides)
 
       routes_ = findRouting(nets, min_layer, max_layer);
     }
+
+    int restricted_net_count = 0;
+    int uncovered_pin_count = 0;
+    std::ostringstream uncovered_examples;
+    for (const auto& [db_net, route] : routes_) {
+      int net_min_layer;
+      int net_max_layer;
+      if (!getNetRoutingLayerRange(db_net, net_min_layer, net_max_layer)) {
+        continue;
+      }
+      restricted_net_count++;
+      for (const Pin& pin : db_net_map_[db_net]->getPins()) {
+        bool covered = false;
+        for (const GSegment& segment : route) {
+          if (segmentCoversPin(segment, pin)) {
+            covered = true;
+            break;
+          }
+        }
+        if (!covered) {
+          if (uncovered_pin_count < 10) {
+            uncovered_examples << " " << db_net->getConstName() << "/"
+                               << pin.getName();
+          }
+          uncovered_pin_count++;
+        }
+      }
+    }
+    if (uncovered_pin_count > 0) {
+      logger_->error(GRT,
+                     717,
+                     "Die-local routing left {} pins uncovered across {} "
+                     "restricted nets. First examples:{}",
+                     uncovered_pin_count,
+                     restricted_net_count,
+                     uncovered_examples.str());
+    }
+    logger_->info(GRT,
+                  718,
+                  "Validated pin coverage for {} die-local nets.",
+                  restricted_net_count);
   } catch (...) {
     updateDbCongestion();
     saveCongestion();
@@ -1354,23 +1395,11 @@ void GlobalRouter::findFastRoutePins(Net* net,
   int min_routing_layer;
   int max_routing_layer;
   getNetLayerRange(net->getDbNet(), min_routing_layer, max_routing_layer);
-  int user_min_layer;
-  int user_max_layer;
-  const bool hard_layer_range = getNetRoutingLayerRange(
-      net->getDbNet(), user_min_layer, user_max_layer);
-  const int routing_anchor_layer
-      = hard_layer_range
-            ? getNetRoutingLayerAnchor(
-                  net->getDbNet(), user_min_layer, user_max_layer)
-            : -1;
 
   for (Pin& pin : net->getPins()) {
     odb::Point pin_position = pin.getOnGridPosition();
     int conn_layer = pin.getConnectionLayer();
-    conn_layer = hard_layer_range
-                     ? routing_anchor_layer
-                     : std::clamp(
-                           conn_layer, min_routing_layer, max_routing_layer);
+    conn_layer = std::clamp(conn_layer, min_routing_layer, max_routing_layer);
 
     int pinX = ((pin_position.x() - grid_->getXMin()) / grid_->getTileSize());
     int pinY = ((pin_position.y() - grid_->getYMin()) / grid_->getTileSize());
@@ -1395,31 +1424,6 @@ void GlobalRouter::findFastRoutePins(Net* net,
       }
     }
   }
-}
-
-int GlobalRouter::getNetRoutingLayerAnchor(odb::dbNet* db_net,
-                                           int min_layer,
-                                           int max_layer) const
-{
-  constexpr int bottom_die_max_layer = 10;
-  constexpr int upper_die_min_layer = 11;
-
-  if (max_layer <= bottom_die_max_layer) {
-    return max_layer;
-  }
-  if (min_layer >= upper_die_min_layer) {
-    return min_layer;
-  }
-
-  logger_->warn(GRT,
-                715,
-                "Net {} has a die routing range metal{}-metal{} crossing the "
-                "3D boundary; using metal{} as the routing anchor.",
-                db_net->getConstName(),
-                min_layer,
-                max_layer,
-                min_layer);
-  return min_layer;
 }
 
 float GlobalRouter::getNetSlack(Net* net)
@@ -3285,7 +3289,8 @@ bool GlobalRouter::isCoveringPin(Net* net, GSegment& segment)
     int seg_y = segment.final_y;
     if (pin.getConnectionLayer() == seg_top_layer
         && pin.getOnGridPosition() == odb::Point(seg_x, seg_y)
-        && (pin.isPort() || pin.isConnectedToPadOrMacro())) {
+        && (pin.isPort() || pin.isConnectedToPadOrMacro()
+            || pin.isHbtBoundaryPin())) {
       return true;
     }
   }
@@ -3413,19 +3418,16 @@ void GlobalRouter::addPinAccessGuidesForNetRoutingLayerRange(odb::dbNet* db_net,
   }
 
   std::vector<Pin>& pins = db_net_map_[db_net]->getPins();
-  const int anchor_layer = getNetRoutingLayerAnchor(db_net, min_layer, max_layer);
-  constexpr int high_fanout_pin_threshold = 512;
-  constexpr int high_fanout_access_limit = 512;
-  const bool high_fanout = pins.size() > high_fanout_pin_threshold;
-
-  auto tile_key = [&](const odb::Point& pos, const int layer) {
+  auto tile_key = [&](const odb::Point& pos,
+                      const int source_layer,
+                      const int guide_layer) {
     const int tile_size = grid_->getTileSize();
     const int tile_x = (pos.x() - grid_->getXMin()) / tile_size;
     const int tile_y = (pos.y() - grid_->getYMin()) / tile_size;
-    return std::make_tuple(tile_x, tile_y, layer);
+    return std::make_tuple(tile_x, tile_y, source_layer, guide_layer);
   };
 
-  std::set<std::tuple<int, int, int>> access_keys;
+  std::set<std::tuple<int, int, int, int>> access_keys;
   std::set<std::tuple<int, int, int, int, int, int>> added_segments;
 
   auto append_segment = [&](const int x0,
@@ -3441,85 +3443,49 @@ void GlobalRouter::addPinAccessGuidesForNetRoutingLayerRange(odb::dbNet* db_net,
     route.emplace_back(x0, y0, l0, x1, y1, l1);
   };
 
-  auto pin_is_covered = [&](const Pin& pin) {
-    for (const GSegment& seg : route) {
-      if (segmentCoversPin(seg, pin)) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  int high_fanout_access_count = 0;
   for (Pin& pin : pins) {
-    const bool force_pin_access = pin.isHbtBoundaryPin();
-    if (!force_pin_access && pin_is_covered(pin)) {
-      continue;
-    }
-    if (!force_pin_access && high_fanout
-        && high_fanout_access_count >= high_fanout_access_limit) {
-      continue;
-    }
-
     const odb::Point on_grid_pos = pin.getOnGridPosition();
-    const odb::Point real_pos = pin.getPosition();
-    const int access_layer = pin.getConnectionLayer();
-    const int access_guide_layer = std::clamp(access_layer, min_layer, max_layer);
-
-    auto add_pin_access = [&](const odb::Point& pos,
-                              const int source_layer,
-                              const int guide_layer) {
-      const auto key = tile_key(pos, guide_layer);
-      if (!force_pin_access && !access_keys.insert(key).second) {
-        return false;
-      }
-
-      append_segment(pos.x(),
-                     pos.y(),
-                     anchor_layer,
-                     pos.x(),
-                     pos.y(),
-                     anchor_layer);
-      if (guide_layer != anchor_layer) {
-        const int step = guide_layer > anchor_layer ? 1 : -1;
-        for (int layer = anchor_layer; layer != guide_layer; layer += step) {
-          append_segment(pos.x(), pos.y(), layer, pos.x(), pos.y(), layer + step);
-        }
-        append_segment(pos.x(),
-                       pos.y(),
-                       guide_layer,
-                       pos.x(),
-                       pos.y(),
-                       guide_layer);
-      }
-      if (source_layer < min_layer && source_layer <= max_layer
-          && min_layer <= 10) {
-        append_segment(pos.x(),
-                       pos.y(),
-                       source_layer,
-                       pos.x(),
-                       pos.y(),
-                       source_layer);
-      }
-      return true;
-    };
-
-    bool added_access = add_pin_access(on_grid_pos, access_layer, access_guide_layer);
-    if ((force_pin_access || !high_fanout) && real_pos != on_grid_pos) {
-      add_pin_access(real_pos, access_layer, access_guide_layer);
+    const int source_layer = pin.getConnectionLayer();
+    const int guide_layer = std::clamp(source_layer, min_layer, max_layer);
+    if (source_layer == guide_layer) {
+      continue;
     }
-    if (force_pin_access || !high_fanout) {
-      for (const auto& [box_layer, boxes] : pin.getBoxes()) {
-        const int box_guide_layer = std::clamp(box_layer, min_layer, max_layer);
-        for (const odb::Rect& box : boxes) {
-          const odb::Point box_center((box.xMin() + box.xMax()) / 2,
-                                      (box.yMin() + box.yMax()) / 2);
-          add_pin_access(box_center, box_layer, box_guide_layer);
-        }
-      }
+
+    constexpr int bottom_die_max_layer = 10;
+    constexpr int upper_die_min_layer = 11;
+    const bool bottom_die_range = max_layer <= bottom_die_max_layer;
+    const bool upper_die_range = min_layer >= upper_die_min_layer;
+    const bool source_on_allowed_die
+        = (!bottom_die_range && !upper_die_range)
+          || (bottom_die_range && source_layer <= bottom_die_max_layer)
+          || (upper_die_range && source_layer >= upper_die_min_layer);
+    if (!source_on_allowed_die) {
+      logger_->warn(GRT,
+                    716,
+                    "Pin {} on metal{} is outside the die-local layer range "
+                    "metal{}-metal{} for net {}; no cross-die access guide "
+                    "was added.",
+                    pin.getName(),
+                    source_layer,
+                    min_layer,
+                    max_layer,
+                    db_net->getConstName());
+      continue;
     }
-    if (!force_pin_access && high_fanout && added_access) {
-      high_fanout_access_count++;
+
+    const auto key = tile_key(on_grid_pos, source_layer, guide_layer);
+    if (!access_keys.insert(key).second) {
+      continue;
+    }
+
+    const int step = guide_layer > source_layer ? 1 : -1;
+    for (int layer = source_layer; layer != guide_layer; layer += step) {
+      append_segment(on_grid_pos.x(),
+                     on_grid_pos.y(),
+                     layer,
+                     on_grid_pos.x(),
+                     on_grid_pos.y(),
+                     layer + step);
     }
   }
 }
@@ -3536,14 +3502,7 @@ void GlobalRouter::connectHbtBoundaryPins(odb::dbNet* db_net, GRoute& route)
     if (!pin.isHbtBoundaryPin()) {
       continue;
     }
-    bool covered = false;
-    for (const GSegment& seg : route) {
-      if (segmentCoversPin(seg, pin)) {
-        covered = true;
-        break;
-      }
-    }
-    if (!covered && connectHbtBoundaryPin(pin, route)) {
+    if (connectHbtBoundaryPin(pin, route)) {
       connected_count++;
     }
   }
@@ -3552,7 +3511,7 @@ void GlobalRouter::connectHbtBoundaryPins(odb::dbNet* db_net, GRoute& route)
              GRT,
              "hbt_boundary_pin_access",
              2,
-             "Connected {} HBT boundary pins on net {}",
+             "Prepared {} HBT boundary route nodes on net {}",
              connected_count,
              db_net->getConstName());
 }
@@ -3560,7 +3519,108 @@ void GlobalRouter::connectHbtBoundaryPins(odb::dbNet* db_net, GRoute& route)
 bool GlobalRouter::connectHbtBoundaryPin(const Pin& pin, GRoute& route)
 {
   const odb::Point pin_pt = pin.getOnGridPosition();
+  const odb::Point geometry_grid_pt
+      = grid_->getPositionOnGrid(pin.getPosition());
   const int pin_layer = pin.getConnectionLayer();
+
+  // A boundary pin shape can straddle two gcells.  Preserve both the terminal
+  // selected by GRT and the gcell obtained from the physical pin center so a
+  // guide reload reconstructs the same reachable HBT anchor.
+  if (geometry_grid_pt != pin_pt) {
+    const odb::Point bend_pt(geometry_grid_pt.x(), pin_pt.y());
+    if (pin_pt != bend_pt) {
+      route.emplace_back(pin_pt.x(),
+                         pin_pt.y(),
+                         pin_layer,
+                         bend_pt.x(),
+                         bend_pt.y(),
+                         pin_layer);
+    }
+    if (bend_pt != geometry_grid_pt) {
+      route.emplace_back(bend_pt.x(),
+                         bend_pt.y(),
+                         pin_layer,
+                         geometry_grid_pt.x(),
+                         geometry_grid_pt.y(),
+                         pin_layer);
+    }
+  }
+
+  // RC extraction expects the pin's gcell center to be a route endpoint.
+  // Split a covering wire at that point instead of adding off-grid guides at
+  // the physical pin center; the gcell guide already covers the pin geometry.
+  const size_t original_route_size = route.size();
+  for (size_t i = 0; i < original_route_size; i++) {
+    GSegment& seg = route[i];
+    if (seg.init_layer != pin_layer || seg.final_layer != pin_layer) {
+      continue;
+    }
+
+    const auto [min_x, max_x] = std::minmax(seg.init_x, seg.final_x);
+    const auto [min_y, max_y] = std::minmax(seg.init_y, seg.final_y);
+    const bool on_segment = pin_pt.x() >= min_x && pin_pt.x() <= max_x
+                            && pin_pt.y() >= min_y && pin_pt.y() <= max_y;
+    if (!on_segment) {
+      continue;
+    }
+
+    const bool endpoint_on_pin_layer
+        = (seg.init_x == pin_pt.x() && seg.init_y == pin_pt.y())
+          || (seg.final_x == pin_pt.x() && seg.final_y == pin_pt.y());
+    if (endpoint_on_pin_layer) {
+      return true;
+    }
+
+    GSegment second_half = seg;
+    seg.final_x = pin_pt.x();
+    seg.final_y = pin_pt.y();
+    second_half.init_x = pin_pt.x();
+    second_half.init_y = pin_pt.y();
+    route.push_back(second_half);
+    return true;
+  }
+
+  for (const GSegment& seg : route) {
+    const auto [min_layer, max_layer]
+        = std::minmax(seg.init_layer, seg.final_layer);
+    if (seg.isVia() && seg.init_x == pin_pt.x() && seg.init_y == pin_pt.y()
+        && pin_layer >= min_layer && pin_layer <= max_layer) {
+      return true;
+    }
+  }
+
+  // A via that terminates on the HBT layer may serialize as only its lower
+  // guide.  Add the shortest adjacent-layer stack at the HBT gcell so both
+  // sides of the boundary access survive guide-file serialization.
+  int access_layer = -1;
+  int best_layer_distance = std::numeric_limits<int>::max();
+  for (const GSegment& seg : route) {
+    const auto [min_x, max_x] = std::minmax(seg.init_x, seg.final_x);
+    const auto [min_y, max_y] = std::minmax(seg.init_y, seg.final_y);
+    if (pin_pt.x() < min_x || pin_pt.x() > max_x || pin_pt.y() < min_y
+        || pin_pt.y() > max_y) {
+      continue;
+    }
+    for (const int candidate_layer : {seg.init_layer, seg.final_layer}) {
+      const int layer_distance = std::abs(candidate_layer - pin_layer);
+      if (layer_distance > 0 && layer_distance < best_layer_distance) {
+        best_layer_distance = layer_distance;
+        access_layer = candidate_layer;
+      }
+    }
+  }
+  if (access_layer > 0) {
+    const int step = access_layer < pin_layer ? 1 : -1;
+    for (int layer = access_layer; layer != pin_layer; layer += step) {
+      route.emplace_back(pin_pt.x(),
+                         pin_pt.y(),
+                         layer,
+                         pin_pt.x(),
+                         pin_pt.y(),
+                         layer + step);
+    }
+    return true;
+  }
 
   bool found_target = false;
   odb::Point target_pt;
@@ -3586,21 +3646,26 @@ bool GlobalRouter::connectHbtBoundaryPin(const Pin& pin, GRoute& route)
   }
 
   if (!found_target) {
-    route.emplace_back(pin_pt.x(),
-                       pin_pt.y(),
-                       pin_layer,
-                       pin_pt.x(),
-                       pin_pt.y(),
-                       pin_layer);
     return false;
   }
 
-  route.emplace_back(pin_pt.x(),
-                     pin_pt.y(),
-                     pin_layer,
-                     target_pt.x(),
-                     target_pt.y(),
-                     pin_layer);
+  odb::Point bend_pt(target_pt.x(), pin_pt.y());
+  if (pin_pt != bend_pt) {
+    route.emplace_back(pin_pt.x(),
+                       pin_pt.y(),
+                       pin_layer,
+                       bend_pt.x(),
+                       bend_pt.y(),
+                       pin_layer);
+  }
+  if (bend_pt != target_pt) {
+    route.emplace_back(bend_pt.x(),
+                       bend_pt.y(),
+                       pin_layer,
+                       target_pt.x(),
+                       target_pt.y(),
+                       pin_layer);
+  }
   return true;
 }
 

@@ -416,9 +416,6 @@ class GlobalRouter
   void findFastRoutePins(Net* net,
                          std::vector<RoutePt>& pins_on_grid,
                          int& root_idx);
-  int getNetRoutingLayerAnchor(odb::dbNet* db_net,
-                               int min_layer,
-                               int max_layer) const;
   float getNetSlack(Net* net);
   odb::dbTechLayer* getRoutingLayerByIndex(int index);
   RoutingTracks getRoutingTracksByIndex(int layer);

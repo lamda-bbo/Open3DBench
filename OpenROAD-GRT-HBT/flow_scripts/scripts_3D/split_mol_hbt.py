@@ -29,6 +29,8 @@ from mol_hbt_common import (
     parse_nets,
 )
 from hbt_placement_greedy import (
+    CoreBbox,
+    HbtOccupancyIndex,
     aligned_hbt_placement_core,
     default_aligned_hbt_grid,
     greedy_hbt_position,
@@ -53,6 +55,39 @@ class SplitPlan:
     top_net: str
 
 
+def parse_die_bbox(def_path: Path) -> CoreBbox:
+    """Read the physical DIEAREA from DEF in database units."""
+    die_re = re.compile(r"^\s*DIEAREA\s+(.*?)\s*;\s*$")
+    point_re = re.compile(r"\(\s*(-?\d+)\s+(-?\d+)\s*\)")
+    with def_path.open(encoding="utf-8") as def_file:
+        for line in def_file:
+            match = die_re.match(line)
+            if match is None:
+                continue
+            points = [
+                (int(x), int(y)) for x, y in point_re.findall(match.group(1))
+            ]
+            if len(points) < 2:
+                break
+            xs = [point[0] for point in points]
+            ys = [point[1] for point in points]
+            return CoreBbox(min(xs), min(ys), max(xs), max(ys))
+    raise ValueError(f"Missing or invalid DIEAREA in {def_path}")
+
+
+def intersect_bbox(lhs: CoreBbox, rhs: CoreBbox) -> CoreBbox:
+    """Return the non-empty intersection of two placement rectangles."""
+    result = CoreBbox(
+        max(lhs.x_min, rhs.x_min),
+        max(lhs.y_min, rhs.y_min),
+        min(lhs.x_max, rhs.x_max),
+        min(lhs.y_max, rhs.y_max),
+    )
+    if result.x_min >= result.x_max or result.y_min >= result.y_max:
+        raise ValueError(f"Empty HBT placement region: {lhs} intersect {rhs}")
+    return result
+
+
 def build_split_plans(
     nets: list[NetRecord],
     inst_die_map: dict[str, str],
@@ -61,6 +96,7 @@ def build_split_plans(
     *,
     split_clocks: bool = True,
     placement_mode: str = "centroid",
+    placement_core: CoreBbox | None = None,
 ) -> tuple[list[SplitPlan], dict[str, str]]:
     """Build HBT split plans for all cross-die nets."""
     classification = classify_all_nets(nets, inst_die_map)
@@ -73,30 +109,51 @@ def build_split_plans(
         if not split_clocks and net.name in SKIPPED_3D_NETS:
             continue
 
-        bottom_pins = tuple(
+        bottom_inst_pins = tuple(
             pin_ref
             for pin_ref in net.pins
             if inst_die_map.get(pin_ref.inst) == "bottom"
         )
-        top_pins = tuple(
+        top_inst_pins = tuple(
             pin_ref
             for pin_ref in net.pins
             if inst_die_map.get(pin_ref.inst) == "upper"
         )
-        if not bottom_pins or not top_pins:
+        if not bottom_inst_pins or not top_inst_pins:
             continue
 
-        hbt_cell = choose_hbt_type(bottom_pins, top_pins, components, lef_dirs)
+        # MoL top-level ports are physically on the bottom die.  Choose the HBT
+        # direction from component pins first, then retain ports on the bottom
+        # subnet so DEF PINS and NETS keep the same electrical connectivity.
+        hbt_cell = choose_hbt_type(
+            bottom_inst_pins,
+            top_inst_pins,
+            components,
+            lef_dirs,
+        )
+        bottom_pins = tuple(
+            pin_ref for pin_ref in net.pins if pin_ref.inst == "PIN"
+        ) + bottom_inst_pins
+        top_pins = top_inst_pins
         pending.append((net, bottom_pins, top_pins, hbt_cell))
         hbt_idx += 1
 
     plans: list[SplitPlan] = []
     if placement_mode == "greedy":
-        core = aligned_hbt_placement_core(
-            parse_core_bbox_from_env(),
-            default_aligned_hbt_grid(),
+        aligned_grid = default_aligned_hbt_grid()
+        requested_core = (
+            placement_core
+            if placement_core is not None
+            else parse_core_bbox_from_env()
         )
-        occupied = []
+        core = aligned_hbt_placement_core(
+            requested_core,
+            aligned_grid,
+        )
+        occupancy_index = HbtOccupancyIndex(
+            pitch=aligned_grid.hbt_pitch_x,
+            size=aligned_grid.hbt_size,
+        )
         order = sorted(
             range(len(pending)),
             key=lambda idx: (
@@ -113,10 +170,11 @@ def build_split_plans(
                 bottom_xy,
                 top_xy,
                 core=core,
-                occupied=tuple(occupied),
+                aligned_grid=aligned_grid,
+                occupancy_index=occupancy_index,
             )
             hubs[idx] = hub
-            occupied.append(hub)
+            occupancy_index.add(hub)
     else:
         hubs = []
 
@@ -166,6 +224,11 @@ def rewrite_def(
 ) -> None:
     """Rewrite DEF with HBT components and split nets."""
     split_map = {plan.original_net: plan for plan in plans}
+    pin_net_map = {
+        plan.original_net: plan.bot_net
+        for plan in plans
+        if any(pin_ref.inst == "PIN" for pin_ref in plan.bottom_pins)
+    }
     flat_hbt: list[str] = []
     for plan in plans:
         flat_hbt.append(f"  - {plan.hbt_inst} {plan.hbt_cell}")
@@ -173,12 +236,14 @@ def rewrite_def(
 
     comp_count_re = re.compile(r"^(\s*COMPONENTS\s+)(\d+)(\s*;.*)$")
     net_count_re = re.compile(r"^(\s*NETS\s+)(\d+)(\s*;.*)$")
+    pin_net_re = re.compile(r"(\+\s+NET\s+)(\S+)")
 
     with def_path.open(encoding="utf-8") as src, output_path.open(
         "w",
         encoding="utf-8",
     ) as dst:
         in_components = False
+        in_pins = False
         in_nets = False
         net_buffer: list[str] = []
         current_net: str | None = None
@@ -237,6 +302,30 @@ def rewrite_def(
                 for hbt_line in flat_hbt:
                     dst.write(hbt_line + "\n")
                 in_components = False
+                dst.write(line)
+                continue
+
+            if stripped.startswith("PINS"):
+                in_pins = True
+                dst.write(line)
+                continue
+
+            if in_pins and stripped.startswith("END PINS"):
+                in_pins = False
+                dst.write(line)
+                continue
+
+            if in_pins:
+                pin_net_match = pin_net_re.search(line)
+                if pin_net_match:
+                    old_net = pin_net_match.group(2)
+                    new_net = pin_net_map.get(old_net)
+                    if new_net is not None:
+                        line = (
+                            line[: pin_net_match.start(2)]
+                            + new_net
+                            + line[pin_net_match.end(2) :]
+                        )
                 dst.write(line)
                 continue
 
@@ -311,6 +400,10 @@ def main() -> int:
     inst_die_map = parse_inst_die_map(def_path)
     components = parse_components(def_path)
     nets = parse_nets(def_path)
+    placement_core = intersect_bbox(
+        parse_core_bbox_from_env(),
+        parse_die_bbox(def_path),
+    )
     plans, classification = build_split_plans(
         nets,
         inst_die_map,
@@ -318,6 +411,7 @@ def main() -> int:
         lef_dirs,
         split_clocks=split_clocks,
         placement_mode=placement_mode,
+        placement_core=placement_core,
     )
 
     backup_path = results_dir / "4_1_cts.pre_hbt.def"

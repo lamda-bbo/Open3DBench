@@ -92,57 +92,12 @@ proc route_pass_subprocess {net_list_path guide_out min_layer max_layer pass_lab
   exec [openroad_exe] -exit -no_init $pass_script > $log_file 2>&1
 }
 
-proc metal_layer_index {layer_name} {
-  if {![regexp {(?i)^metal([0-9]+)$} $layer_name -> idx]} {
-    utl::error GRT 324 "Invalid metal layer name $layer_name"
-  }
-  return $idx
-}
-
-proc clamp_pass_guide_file_if_enabled {guide_path min_layer max_layer} {
-  if {[info exists ::env(CLAMP_PASS_GUIDE_LAYERS)]} {
-    if {$::env(CLAMP_PASS_GUIDE_LAYERS) eq "" || $::env(CLAMP_PASS_GUIDE_LAYERS) eq "0"} {
-      puts "Skipping pass guide clamp on $guide_path (CLAMP_PASS_GUIDE_LAYERS=0)"
-      return
-    }
-  }
-  set clamp_py $::env(SCRIPTS_DIR)/../scripts_3D/clamp_pass_guide_layers.py
-  set min_n [metal_layer_index $min_layer]
-  set max_n [metal_layer_index $max_layer]
-  puts "Clamping $guide_path to ${min_layer}-${max_layer}"
-  exec python3 $clamp_py $guide_path $min_n $max_n $guide_path
-}
-
-proc inject_hbt_cover_guides_if_enabled {guide_path def_path} {
-  if {[info exists ::env(INJECT_HBT_COVER_GUIDES)]} {
-    if {$::env(INJECT_HBT_COVER_GUIDES) eq "" || $::env(INJECT_HBT_COVER_GUIDES) eq "0"} {
-      return
-    }
-  }
-  set inject_py $::env(SCRIPTS_DIR)/../scripts_3D/inject_hbt_cover_guides.py
-  puts "Injecting HBT pin cover guides into $guide_path"
-  exec python3 $inject_py $guide_path $def_path $guide_path
-}
-
 proc merge_route_guide_files {output_guide guide_inputs} {
   set merge_py $::env(SCRIPTS_DIR)/../scripts_3D/merge_route_guides.py
   set cmd [linsert $guide_inputs 0 $merge_py $output_guide]
   puts "Merging [expr {[llength $guide_inputs]}] guide files -> $output_guide"
   exec python3 {*}$cmd
 }
-
-proc scrub_merged_guides_if_enabled {guide_path def_path} {
-  if {![info exists ::env(SCRUB_2D_NET_GUIDES)]} {
-    return
-  }
-  if {$::env(SCRUB_2D_NET_GUIDES) eq "" || $::env(SCRUB_2D_NET_GUIDES) eq "0"} {
-    return
-  }
-  set scrub_py $::env(SCRIPTS_DIR)/../scripts_3D/scrub_2d_net_guide_layers.py
-  puts "Scrubbing illegal cross-die layers from $guide_path"
-  exec python3 $scrub_py $guide_path $def_path $guide_path
-}
-
 
 proc validate_merged_guides_if_enabled {results_dir} {
   if {[info exists ::env(VALIDATE_DIE_GUIDES)]} {
@@ -152,10 +107,13 @@ proc validate_merged_guides_if_enabled {results_dir} {
     }
   }
   set diag_py $::env(SCRIPTS_DIR)/../scripts_3D/diagnose_guide_connectivity.py
+  set layer_check_py $::env(SCRIPTS_DIR)/../scripts_3D/check_2d_net_guide_layers.py
   set max_cc 5000
   if {[info exists ::env(DIE_GUIDE_MAX_CC_RECTS)]} {
     set max_cc $::env(DIE_GUIDE_MAX_CC_RECTS)
   }
+  puts "Checking raw merged guide layers without mutation"
+  exec python3 $layer_check_py $results_dir/route.guide $results_dir/4_1_cts.def
   puts "Validating merged HBT/die guides in $results_dir"
   exec python3 $diag_py $results_dir     --strict --top 50 --max-cc-rects $max_cc
 }
@@ -185,19 +143,16 @@ puts "Pass1: queued $bottom_added bottom nets for GRT"
 global_route -guide_file $::env(RESULTS_DIR)/route_bottom.guide \
   -congestion_report_file $::env(REPORTS_DIR)/congestion_bottom.rpt \
   {*}$grt_args
-clamp_pass_guide_file_if_enabled $::env(RESULTS_DIR)/route_bottom.guide metal1 $bot_max
 
 # --- Pass 2: upper die (isolated subprocess, only upper metal visible) ---
 route_pass_subprocess $list_dir/upper_2d.txt \
   $::env(RESULTS_DIR)/route_upper.guide $top_min $top_max upper
-clamp_pass_guide_file_if_enabled $::env(RESULTS_DIR)/route_upper.guide $top_min $top_max
 
 set merged_guide $::env(RESULTS_DIR)/route.guide
 merge_route_guide_files $merged_guide [list \
   $::env(RESULTS_DIR)/route_bottom.guide \
   $::env(RESULTS_DIR)/route_upper.guide \
 ]
-inject_hbt_cover_guides_if_enabled $merged_guide $def_file
-scrub_merged_guides_if_enabled $merged_guide $def_file
+puts "Using algorithm-native pin access; guide-file repair is not part of this flow"
 validate_merged_guides_if_enabled $::env(RESULTS_DIR)
 finalize_merged_guides

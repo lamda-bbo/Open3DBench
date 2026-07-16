@@ -1,7 +1,8 @@
-# EDA Contest GRT/HBT OpenROAD Patch
+# EDA Contest GRT OpenROAD Patch
 
 This directory contains the public OpenROAD changes for the EDA contest branch.
-It only includes die-by-die global routing and HBT-related code. Die-by-die
+It includes the public die-by-die global-routing implementation and the HBT
+generation utilities used to prepare the released inputs. Die-by-die
 detailed-routing evaluator code is intentionally not included.
 
 ## Directory Layout
@@ -21,8 +22,9 @@ The files are restricted to `src/grt` and FastRoute:
 - `src/grt/src/fastroute/include/{DataType.h,FastRoute.h}`
 - `src/grt/src/fastroute/src/{FastRoute.cpp,utility.cpp}`
 
-`flow_scripts/` should be overlaid on `OpenROAD-3D/flow`. It contains HBT
-generation/modeling scripts and die-by-die GRT guide scripts only.
+`flow_scripts/` should be overlaid on `OpenROAD-3D/flow`. It contains the
+die-by-die GRT guide scripts and the HBT preparation utilities retained for
+reference and reproducibility.
 
 ## Inputs
 
@@ -30,13 +32,14 @@ The contest-facing flow expects the following inputs:
 
 | File | Description |
 |---|---|
-| `4_1_cts.def` | Post-CTS DEF after contestant HBT placement and netlist split. HBT instances should appear as normal instances with `BOT` and `TOP` pins. |
+| `4_1_cts.def` | Provided post-placement, post-CTS, post-HBT DEF. It already contains HBT coordinates and `_BOT`/`_TOP` split-net connectivity. HBT instances appear as normal instances with `BOT` and `TOP` pins. |
 | `*.lef`, tech LEF | Standard-cell, macro, and 3D technology LEF files. The default stack uses bottom routing layers `metal1-metal10` and top routing layers `metal11-metal20`. |
 | `*.lib`, `*.sdc` | Timing libraries and constraints used by the OpenROAD flow. |
 | optional die net lists | Lists of bottom-only and top-only 2D nets. If omitted, they can be inferred from DEF connectivity and HBT pin ownership. |
 
-The GRT flow reads the DEF through OpenROAD/ODB, applies per-net routing-layer
-constraints, and writes standard OpenROAD route guides.
+The GRT flow starts directly from this DEF, reads it through OpenROAD/ODB,
+applies per-net routing-layer constraints, and writes standard OpenROAD route
+guides. Contestants do not need to run HBT placement or net splitting first.
 
 ## Outputs
 
@@ -45,7 +48,6 @@ constraints, and writes standard OpenROAD route guides.
 | `route.guide` | Merged global-routing guide for all nets. |
 | `5_1_grt.odb` | ODB after global routing. |
 | `*.rpt`, `*.log`, `*.json` | Runtime, GRT wirelength, overflow, and flow diagnostics. |
-| HBT DEF/guide intermediates | Optional files emitted by the HBT split and guide-finalization scripts for debugging and reproducibility. |
 
 The hidden evaluator may later consume `route.guide` and `5_1_grt.odb` to run
 detailed route and DRC checks. The evaluator implementation is not part of this
@@ -64,51 +66,42 @@ The flow classifies nets into three groups:
 
 | Net type | Routing layer range |
 |---|---|
-| bottom 2D net | `metal1-metal10` |
+| bottom 2D net | bottom stack `metal1-metal10`; signal routing defaults to `metal2-metal10` |
 | top 2D net | `metal11-metal20` |
-| cross-die/HBT net | unrestricted or explicitly bridged through HBT pins |
+| cross-die/HBT net | split into die-local `_BOT` and `_TOP` subnets at an HBT |
 
-After global routing, the guide finalization step merges bottom/top pass guides,
-adds required pin-access anchors, and scrubs out-of-die guide rectangles for
-strict 2D nets. HBT boundary pins are preserved as real guide targets so GRT
-does not silently drop the vertical connection point.
+HBT boundary pins are real guide targets. The source-level implementation
+preserves the terminal and physical-geometry GCells, splits a covering segment
+at the HBT when needed, and validates every restricted-net pin after routing.
 
-## HBT Algorithm
-
-The HBT scripts convert a split 3D net into explicit HBT connectivity:
-
-1. Parse the post-CTS DEF and the split net structure.
-2. Create or preserve HBT instances at legal hybrid-bonding coordinates.
-3. Connect each HBT through a `BOT` pin on the lower die and a `TOP` pin on the
-   upper die.
-4. Model those pins on the boundary routing layers, usually `metal10` and
-   `metal11`.
-5. Feed the HBT pins into GRT as normal net terminals so the generated guide
-   reaches the HBT location.
-
-The included greedy HBT placer is a simple baseline: it assigns HBT locations by
-local net demand and geometric proximity while respecting the available HBT
-site grid. Contestants can replace this module with their own HBT-placement and
-net-splitting algorithms as long as the resulting DEF follows the same
-interface.
+The flow does not mutate algorithm output with guide injection, clamping, or
+scrubbing. It merges the raw bottom/top guide files, checks layer ownership and
+connectivity, and fails if the source algorithm left a pin uncovered. Obsolete
+file-level guide repair scripts are not included.
 
 ## Baseline Evaluation Results
 
-The table below reports the existing baseline run using the public die-by-die
-GRT/HBT code and the hidden detailed-route evaluator. These results were
-collected on the current development server on 2026-07-13. `running` and
-`not-started` entries are included for completeness.
+The table below reports the latest baseline from the supplied post-HBT inputs,
+the public die-by-die GRT code, and the hidden detailed-route evaluator.
+These results were collected on the development server on 2026-07-16. DRT used
+32 threads with `droute_end_iter=2`; DRC is the unified full-stack count after
+the final HBT net merge and fixed-via conversion. TNS and WNS are setup metrics
+reported by OpenSTA after OpenRCX extraction of the final routed ODB.
 
-| case | status | wall runtime | GRT runtime | DRT WL | DRC |
-|---|---:|---:|---:|---:|---:|
-| ariane133 | DONE | 5:22:47 | 00:01:48 | 5,690,813 | 82,274 |
-| ariane136 | DONE | 4:42:36 | 00:01:52 | 5,677,655 | 89,452 |
-| bp_fe | DONE | 0:28:35 | 00:00:14 | 1,287,086 | 17,396 |
-| bp_be | DONE | 1:03:34 | 00:00:46 | 2,338,762 | 36,547 |
-| swerv_wrapper | DONE | 2:18:29 | 00:01:43 | 3,805,093 | 77,207 |
-| bp_multi | DONE | 2:34:54 | 00:00:57 | 3,872,559 | 58,055 |
-| bp | running | - | 00:03:06 | - | - |
-| bp_quad | not started | - | - | - | - |
+| case | status | wall runtime | GRT WL | DRT WL | unified DRC | TNS (ns) | WNS (ns) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| ariane133 | DONE | 1:14:01 | 7,518,274 | 5,789,263 | 20,175 | -3,641.05 | -1.58810 |
+| ariane136 | DONE | 1:18:29 | 7,588,734 | 5,809,451 | 20,190 | -732,378 | -33.8851 |
+| bp_fe | DONE | 0:10:11 | 1,713,704 | 1,423,445 | 5,676 | -2,698.66 | -1.35272 |
+| bp_be | DONE | 0:20:35 | 2,979,267 | 2,389,764 | 9,010 | -1,526.35 | -1.41182 |
+| bp | DONE | 1:23:32 | 9,984,157 | 7,846,499 | 20,172 | -43,927.0 | -6.23376 |
+| bp_multi | DONE | 0:43:16 | 4,968,325 | 3,956,852 | 17,807 | -38,177.9 | -6.49767 |
+| swerv_wrapper | DRT regression DONE | 0:27:52* | 4,977,322 | 3,900,344 | 16,878 | -648.691 | -0.826734 |
+| bp_quad | PENDING | - | - | - | - | - | - |
+
+`*` Checkpoint-based bottom/upper DRT regression plus unified post-DRT DRC.
+Timing was subsequently measured from the same final routed ODB with the
+standard final-report flow.
 
 ## What Is Not Included
 

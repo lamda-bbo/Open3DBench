@@ -84,19 +84,3 @@ puts "Single-pass GRT: queued $queued nets ($pass_min-$pass_max) -> $::env(GRT_P
 
 global_route -guide_file $::env(GRT_PASS_GUIDE_OUT) {*}$grt_args
 write_guides $::env(GRT_PASS_GUIDE_OUT)
-
-if {![info exists ::env(CLAMP_PASS_GUIDE_LAYERS)]
-    || ($::env(CLAMP_PASS_GUIDE_LAYERS) ne "" && $::env(CLAMP_PASS_GUIDE_LAYERS) ne "0")} {
-  set clamp_py $::env(SCRIPTS_DIR)/../scripts_3D/clamp_pass_guide_layers.py
-  if {![regexp {(?i)^metal([0-9]+)$} $pass_min -> pass_min_n]} {
-    utl::error GRT 324 "Invalid pass min layer $pass_min"
-  }
-  if {![regexp {(?i)^metal([0-9]+)$} $pass_max -> pass_max_n]} {
-    utl::error GRT 324 "Invalid pass max layer $pass_max"
-  }
-  puts "Clamping pass guide to ${pass_min}-${pass_max}"
-  exec python3 $clamp_py $::env(GRT_PASS_GUIDE_OUT) $pass_min_n $pass_max_n \
-    $::env(GRT_PASS_GUIDE_OUT)
-} else {
-  puts "Skipping pass guide clamp (CLAMP_PASS_GUIDE_LAYERS=0)"
-}
