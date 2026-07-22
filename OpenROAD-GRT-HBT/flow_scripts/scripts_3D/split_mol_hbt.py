@@ -27,6 +27,8 @@ from mol_hbt_common import (
     parse_inst_die_map,
     parse_lef_pin_directions,
     parse_nets,
+    parse_pin_die_map,
+    pin_ref_die,
 )
 from hbt_placement_greedy import (
     CoreBbox,
@@ -93,66 +95,101 @@ def build_split_plans(
     inst_die_map: dict[str, str],
     components: dict[str, ComponentInfo],
     lef_dirs: dict[str, dict[str, str]],
+    pin_die_map: dict[str, str] | None = None,
     *,
     split_clocks: bool = True,
     placement_mode: str = "centroid",
     placement_core: CoreBbox | None = None,
 ) -> tuple[list[SplitPlan], dict[str, str]]:
     """Build HBT split plans for all cross-die nets."""
-    classification = classify_all_nets(nets, inst_die_map)
+    classification = classify_all_nets(nets, inst_die_map, pin_die_map)
     pending: list[tuple[NetRecord, tuple[PinRef, ...], tuple[PinRef, ...], str]] = []
-    hbt_idx = 0
-
     for net in nets:
         if classification.get(net.name) != "3d":
             continue
         if not split_clocks and net.name in SKIPPED_3D_NETS:
             continue
 
-        bottom_inst_pins = tuple(
+        bottom_pins = tuple(
             pin_ref
             for pin_ref in net.pins
-            if inst_die_map.get(pin_ref.inst) == "bottom"
+            if pin_ref_die(pin_ref, inst_die_map, pin_die_map) == "bottom"
         )
-        top_inst_pins = tuple(
+        top_pins = tuple(
             pin_ref
             for pin_ref in net.pins
-            if inst_die_map.get(pin_ref.inst) == "upper"
+            if pin_ref_die(pin_ref, inst_die_map, pin_die_map) == "upper"
         )
-        if not bottom_inst_pins or not top_inst_pins:
+        if not bottom_pins or not top_pins:
             continue
 
-        # MoL top-level ports are physically on the bottom die.  Choose the HBT
-        # direction from component pins first, then retain ports on the bottom
-        # subnet so DEF PINS and NETS keep the same electrical connectivity.
         hbt_cell = choose_hbt_type(
-            bottom_inst_pins,
-            top_inst_pins,
+            bottom_pins,
+            top_pins,
             components,
             lef_dirs,
         )
-        bottom_pins = tuple(
-            pin_ref for pin_ref in net.pins if pin_ref.inst == "PIN"
-        ) + bottom_inst_pins
-        top_pins = top_inst_pins
         pending.append((net, bottom_pins, top_pins, hbt_cell))
-        hbt_idx += 1
 
     plans: list[SplitPlan] = []
-    if placement_mode == "greedy":
+    existing_hbts = sorted(
+        (
+            component
+            for component in components.values()
+            if component.inst.startswith(("HBT_", "LS_HBT_"))
+            or component.cell.startswith(("HBT_", "LS_HBT_"))
+        ),
+        key=lambda component: component.inst,
+    )
+    aligned_grid = None
+    requested_core = None
+    occupancy_index = None
+    if placement_mode == "greedy" or existing_hbts:
         aligned_grid = default_aligned_hbt_grid()
         requested_core = (
             placement_core
             if placement_core is not None
             else parse_core_bbox_from_env()
         )
-        core = aligned_hbt_placement_core(
-            requested_core,
-            aligned_grid,
-        )
         occupancy_index = HbtOccupancyIndex(
             pitch=aligned_grid.hbt_pitch_x,
             size=aligned_grid.hbt_size,
+        )
+        for component in existing_hbts:
+            origin = (component.x, component.y)
+            if not requested_core.contains_hbt_origin(
+                component.x,
+                component.y,
+                size=aligned_grid.hbt_size,
+            ):
+                raise ValueError(
+                    f"Existing HBT {component.inst} at {origin} is outside the placement core"
+                )
+            on_hbt_grid = (
+                (component.x - aligned_grid.origin_offset_x)
+                % aligned_grid.hbt_pitch_x
+                == 0
+                and (component.y - aligned_grid.origin_offset_y)
+                % aligned_grid.hbt_pitch_y
+                == 0
+            )
+            if not on_hbt_grid or not aligned_grid.center_on_metal_track(origin):
+                raise ValueError(
+                    f"Existing HBT {component.inst} at {origin} is off the configured HBT grid"
+                )
+            if occupancy_index.violates_pitch(origin):
+                raise ValueError(
+                    f"Existing HBT {component.inst} at {origin} violates HBT pitch"
+                )
+            occupancy_index.add(origin)
+
+    if placement_mode == "greedy":
+        assert aligned_grid is not None
+        assert requested_core is not None
+        assert occupancy_index is not None
+        core = aligned_hbt_placement_core(
+            requested_core,
+            aligned_grid,
         )
         order = sorted(
             range(len(pending)),
@@ -178,16 +215,32 @@ def build_split_plans(
     else:
         hubs = []
 
-    for idx, (net, bottom_pins, top_pins, hbt_cell) in enumerate(pending):
+    used_inst_names = set(components)
+    next_idx_by_cell: dict[str, int] = {}
+    for plan_idx, (net, bottom_pins, top_pins, hbt_cell) in enumerate(pending):
         if placement_mode == "greedy":
-            cx, cy = hubs[idx]
+            cx, cy = hubs[plan_idx]
         else:
             cx, cy = centroid_for_pins(net.pins, components)
-        hbt_inst = f"{hbt_cell}_{idx}"
+            if occupancy_index is not None:
+                origin = (cx, cy)
+                if occupancy_index.violates_pitch(origin):
+                    raise ValueError(
+                        f"Centroid HBT for net {net.name} at {origin} violates "
+                        "the pitch of a preplaced HBT"
+                    )
+                occupancy_index.add(origin)
+        hbt_idx = next_idx_by_cell.get(hbt_cell, 0)
+        hbt_inst = f"{hbt_cell}_{hbt_idx}"
+        while hbt_inst in used_inst_names:
+            hbt_idx += 1
+            hbt_inst = f"{hbt_cell}_{hbt_idx}"
+        next_idx_by_cell[hbt_cell] = hbt_idx + 1
+        used_inst_names.add(hbt_inst)
         plans.append(
             SplitPlan(
                 original_net=net.name,
-                hbt_idx=idx,
+                hbt_idx=hbt_idx,
                 hbt_cell=hbt_cell,
                 hbt_inst=hbt_inst,
                 hbt_x=cx,
@@ -224,11 +277,14 @@ def rewrite_def(
 ) -> None:
     """Rewrite DEF with HBT components and split nets."""
     split_map = {plan.original_net: plan for plan in plans}
-    pin_net_map = {
-        plan.original_net: plan.bot_net
-        for plan in plans
-        if any(pin_ref.inst == "PIN" for pin_ref in plan.bottom_pins)
-    }
+    pin_net_map: dict[tuple[str, str], str] = {}
+    for plan in plans:
+        for pin_ref in plan.bottom_pins:
+            if pin_ref.inst == "PIN":
+                pin_net_map[(plan.original_net, pin_ref.pin)] = plan.bot_net
+        for pin_ref in plan.top_pins:
+            if pin_ref.inst == "PIN":
+                pin_net_map[(plan.original_net, pin_ref.pin)] = plan.top_net
     flat_hbt: list[str] = []
     for plan in plans:
         flat_hbt.append(f"  - {plan.hbt_inst} {plan.hbt_cell}")
@@ -244,6 +300,7 @@ def rewrite_def(
     ) as dst:
         in_components = False
         in_pins = False
+        current_pin: str | None = None
         in_nets = False
         net_buffer: list[str] = []
         current_net: str | None = None
@@ -316,10 +373,13 @@ def rewrite_def(
                 continue
 
             if in_pins:
+                if stripped.startswith("- "):
+                    parts = stripped.split()
+                    current_pin = parts[1] if len(parts) >= 2 else None
                 pin_net_match = pin_net_re.search(line)
-                if pin_net_match:
+                if pin_net_match and current_pin is not None:
                     old_net = pin_net_match.group(2)
-                    new_net = pin_net_map.get(old_net)
+                    new_net = pin_net_map.get((old_net, current_pin))
                     if new_net is not None:
                         line = (
                             line[: pin_net_match.start(2)]
@@ -398,6 +458,7 @@ def main() -> int:
     lef_dirs = parse_lef_pin_directions(lef_paths)
 
     inst_die_map = parse_inst_die_map(def_path)
+    pin_die_map = parse_pin_die_map(def_path)
     components = parse_components(def_path)
     nets = parse_nets(def_path)
     placement_core = intersect_bbox(
@@ -409,6 +470,7 @@ def main() -> int:
         inst_die_map,
         components,
         lef_dirs,
+        pin_die_map,
         split_clocks=split_clocks,
         placement_mode=placement_mode,
         placement_core=placement_core,

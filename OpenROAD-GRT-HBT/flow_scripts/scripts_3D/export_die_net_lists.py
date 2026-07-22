@@ -12,6 +12,7 @@ from mol_hbt_common import (
     count_net_routing_terminals,
     parse_inst_die_map,
     parse_nets,
+    parse_pin_die_map,
 )
 from mol_layer_share_common import (
     build_subnet_manifest_index,
@@ -52,8 +53,9 @@ def main() -> int:
     subnet_index = build_subnet_manifest_index(manifest)
 
     inst_die_map = parse_inst_die_map(def_path)
+    pin_die_map = parse_pin_die_map(def_path)
     nets = parse_nets(def_path)
-    classification = classify_all_nets(nets, inst_die_map)
+    classification = classify_all_nets(nets, inst_die_map, pin_die_map)
 
     bottom: list[str] = []
     upper: list[str] = []

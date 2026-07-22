@@ -1,127 +1,96 @@
-# 2026 EDA Elite Challenge: Timing-Driven Die-by-Die 3D Global Routing
+# 2026 EDA Elite Challenge: Timing-Driven 3D Global Routing with Hybrid Bonding Co-Optimization for Face-to-Face-Bonded 3D-IC
 
-This repository is the contest code package for the **2026 China Graduate IC Innovation Competition - EDA Elite Challenge**.
+This repository provides the public code, benchmark interface, and baseline for the **2026 China Graduate IC Innovation Competition - EDA Elite Challenge**.
 
-赛题中文名称：**面向面对面键合 3D-IC 的时序驱动分 die 全局布线方法**
+赛题中文名称：**时序驱动与 HB 布局协同的面对面键合 3D-IC 三维全局布线方法**
 
-English title: **Timing-Driven Die-by-Die Global Routing for Face-to-Face-Bonded 3D-IC**
+English title: **Timing-Driven 3D Global Routing with Hybrid Bonding Co-Optimization for Face-to-Face-Bonded 3D-IC**
 
+## 1. Contest Description
 
-## 1. Contest Overview / 赛题简介
+The contest asks participants to co-optimize Metal Layer Sharing net selection and subnet assignment, incremental HBT placement, and timing-driven 3D global routing. The submitted algorithm must produce a routed OpenDB database containing the resulting guides, HBT placement, and net/subnet connectivity.
 
-
-Face-to-face-bonded 3D ICs use Hybrid Bonding Terminals (HBTs) to connect two stacked dies. Compared with conventional 2D routing, this creates a new optimization opportunity: selected nets may share routing resources across the two dies through HBTs, reducing congestion on the over-utilized die and exploiting under-used metal resources on the other die.
-
-The goal of this contest is to design a timing-driven die-by-die global-routing algorithm for a face-to-face 3D stack. Each benchmark provides a post-placement, post-CTS DEF in which HBT locations and cross-die split-net connectivity have already been generated. Contestants therefore start directly from a common 3D routing input and output legal OpenROAD/FastRoute route guides. The final evaluator will run detailed routing and DRC checking with TritonRoute, and timing analysis with OpenSTA.
-
-面对面键合 3D-IC 通过混合键合端子（Hybrid Bonding Terminal, HBT）实现上下 die 之间的垂直互连。与传统二维布线相比，3D-IC 提供了新的优化空间：部分线网可以通过 HBT 借用相邻 die 的金属层资源，从而缓解单个 die 的局部拥塞，并提升上下 die 间布线资源的整体利用率。
-
-本赛题要求参赛者面向面对面键合 3D 堆叠设计时序驱动的分 die 全局布线算法。每个 benchmark 直接提供 placement optimization、CTS 和 HBT 预计算完成后的 DEF，其中已经包含 HBT 坐标和跨 die 拆分网络。参赛者从统一的 3D 布线输入出发，输出符合 OpenROAD/FastRoute 标准的 `.guide` 文件。最终评估器将使用 TritonRoute 完成详细布线和 DRC 检查，并调用 OpenSTA 完成 3D 时序分析。
-
-## 2. Repository Layout
+## 2. Repository and Baseline
 
 ```text
 Open3DBench/
-├── OpenROAD-GRT-HBT/   # Public GRT patch and HBT input-preparation utilities
-│   ├── openroad_src/   # Source overlay for OpenROAD src/grt
-│   └── flow_scripts/   # OpenROAD-3D flow scripts for HBT and GRT
-├── OpenROAD-3D/        # Backend flow interface and evaluation harness
-├── Place-MoL/          # Memory-on-logic placement flow
-└── Place-LoL/          # Logic-on-logic conversion and placement utilities
+├── OpenROAD-GRT-HBT/   # Modified OpenROAD with 3D GRT and HBT placement
+│   ├── openroad_src/   # Source code for OpenROAD src/grt
+│   └── flow_scripts/   # GRT and HBT scripts
+├── OpenROAD-3D/        # OpenROAD-based 3D backend flow
+├── Place-MoL/          # Memory-on-Logic placement flow
+└── Place-LoL/
 ```
 
-The public package exposes the baseline GRT code and contest flow interface. HBT generation code is retained for reference and reproducibility, while the released benchmark inputs already contain the precomputed HBT placement and connectivity.
+The supplied baseline could be the starting point for contest development, which does not introduce additional Metal Layer Sharing nets.
 
-## 3. Baseline GRT Algorithm
+### 2.1 Source-Level GRT Changes
 
-The baseline is a die-by-die extension of OpenROAD/FastRoute for the NanGate45_3D stack. Bottom-die 2D guides are restricted to the `metal1-metal10` stack; top-die 2D nets are restricted to `metal11-metal20`. A cross-die net is first split at an explicit HBT, so each resulting subnet has one die-local routing problem and a real HBT terminal.
+The provided OpenROAD source adds a per-net routing-layer range to `GlobalRouter` and propagates it into FastRoute. The allowed layer range is enforced during topology generation, resource accounting, maze expansion, and route reconstruction, so a die-local net cannot move to the opposite die as a congestion fallback. HBT pins are retained as real routing terminals that can be naturally processed by the router.
 
-### 3.1 Source-Level Implementation
+### 2.2 Die-by-Die Multi-Pass Baseline
 
-The public OpenROAD patch adds a per-net routing-layer range to `GlobalRouter` and propagates it into FastRoute. Layer ranges are hard constraints during topology generation, resource accounting, maze expansion, and route reconstruction; congestion fallback is not allowed to silently move a die-local net onto the opposite die.
+1. Classify the input net into bottom-die and top-die subnets.
+2. Route bottom-die subnets on `metal1-metal10` and top-die subnets on `metal11-metal20` in isolated OpenROAD processes.
+3. Merge the two standard guide results and import them into the final `5_1_grt.odb`.
 
-HBT `BOT` and `TOP` pins are treated as real global-routing terminals. The router preserves both the selected terminal GCell and the GCell containing the physical HBT geometry, splits a covering route segment at the HBT terminal when necessary, and creates the shortest legal layer-access chain to the terminal layer. After routing, source-level validation checks every pin of every restricted net and reports an error if any terminal remains uncovered.
-
-### 3.2 Multi-Pass Flow
-
-The flow classifies the post-HBT DEF into bottom 2D nets and top 2D nets, then runs two isolated OpenROAD processes:
-
-1. The bottom pass routes only the bottom list in the bottom stack (`metal1-metal10`).
-2. The upper pass routes only the top list in `metal11-metal20`.
-3. The two standard OpenROAD guide files are merged into one `route.guide` and the routed databases are finalized into `5_1_grt.odb`.
-
-The `_BOT` and `_TOP` subnets meet at the same placed HBT instance but remain electrically separate during GRT. No implicit cross-die guide is created for a split net. The two guide files are then merged, checked for die-local layer ownership, and imported into the final ODB.
-
-## 4. Input Files
+## 4. Input and Output Files
 
 Input package download:
 
 > [Download the public input package from Google Drive](https://drive.google.com/file/d/1o4ExxQX9lBswf4VWYGUsLMqjWBKLCTW6/view?usp=share_link)
 
-It contains eight public cases generated by the standard Open3DBench placement and CTS flow, followed by HBT placement and cross-die net splitting. The NanGate45_3D platform files required by GRT are included. Its directory layout is:
-
 ```text
 open3dbench_8cases_post_hbt_input_20260716_r2/
 ├── README.txt
 ├── MANIFEST.sha256
-├── cases/
-│   ├── ariane133/
-│   ├── ariane136/
-│   ├── bp/
-│   ├── bp_be/
-│   ├── bp_fe/
-│   ├── bp_multi/
-│   ├── bp_quad/
-│   └── swerv_wrapper/
-└── platforms/
-    └── nangate45_3D/
+├── cases/<case>/
+│   ├── grt_input/
+│   └── flow_design/
+└── platforms/nangate45_3D/
 ```
 
-Each case directory contains the common starting point for the contestant GRT algorithm:
+### 4.1 Per-Case Inputs
 
-| Path | Description |
+| File | Information described by the file |
 |---|---|
-| `cases/<case>/grt_input/4_1_cts.def` | Post-placement, post-CTS, post-HBT DEF. It contains the precomputed HBT instance coordinates and the `_BOT`/`_TOP` split-net connectivity, and is the direct GRT input. |
-| `cases/<case>/grt_input/4_cts.sdc` | SDC emitted by the same CTS run and consumed by the downstream GRT/evaluation flow. |
-| `cases/<case>/flow_design/config*.mk` | OpenROAD-3D flow configuration files for the benchmark. |
-| `cases/<case>/flow_design/*.sdc` | Original design SDC file used by the flow configuration. |
-| `cases/<case>/flow_design/{*.v,fastroute.tcl}` | Optional design-specific wrappers and routing settings. |
+| `cases/<case>/grt_input/4_1_cts.def` | Die area, rows and tracks, component and macro placement, pins, nets, CTS result, and the baseline HBT instances and segmented nets. |
+| `cases/<case>/grt_input/4_cts.sdc` | Clocks, clock uncertainty, I/O delays, timing exceptions, and other timing constraints associated with the CTS design. |
+| `cases/<case>/flow_design/config*.mk` | Design name, platform selection, source-file paths, routing layers, utilization targets, and flow parameters for the case. |
+| `cases/<case>/flow_design/*.sdc` | Original design-level clock and timing constraints referenced by the case configuration. |
+| `cases/<case>/flow_design/*.v` and `*.sv2v.v` | Verilog module, macro-wrapper, or design-source definitions required by the case. |
+| `cases/<case>/flow_design/fastroute.tcl` | Case-specific global-routing layer adjustments and routing-capacity settings, when present. |
 
-The platform directory contains:
+### 4.2 Platform Inputs
 
-| Path | Description |
+| File | Information described by the file |
 |---|---|
-| `platforms/nangate45_3D/config.mk` | NanGate45_3D platform configuration referenced by the case configs. |
-| `platforms/nangate45_3D/lef*` | Technology, standard-cell, macro, bottom-die, and top-die LEF files. |
-| `platforms/nangate45_3D/lib*` | Timing libraries for normal, bottom-die, and top-die views. |
-| `platforms/nangate45_3D/gds`, `cdl`, `drc` | Physical verification collateral included with the platform. |
-| `platforms/nangate45_3D/*.tcl`, `*.rules`, `*.cfg` | Flow support files such as routing, RC, tapcell, and track-generation settings. |
+| `platforms/nangate45_3D/config.mk` | Platform file locations, routing-layer definitions, RC setup, and default physical-design parameters. |
+| `platforms/nangate45_3D/lef*/**.lef` | Manufacturing grid, routing and cut layers, tracks, vias, design rules, standard-cell geometry, macro geometry, and pin shapes. |
+| `platforms/nangate45_3D/lib*/**.lib` | Cell and macro timing arcs, delays, constraints, capacitance, transition, and power models. |
+| `platforms/nangate45_3D/setRC.tcl` and `rcx_patterns.rules` | Wire/via resistance-capacitance settings and extraction rules used for timing evaluation. |
+| `platforms/nangate45_3D/fastroute.tcl`, `make_tracks.tcl`, and `grid_strategy*.tcl` | Default routing-layer adjustments, routing-track definitions, and power-grid settings. |
+| `platforms/nangate45_3D/gds/`, `cdl/`, and `drc/` | Layout geometry, transistor-level connectivity, and physical-verification rule files. |
+The input DEF provides a reproducible baseline state. Contest algorithms may change HBT placement and subnet connectivity as part of the required co-optimization, but must preserve all non-HBT component placement.
 
-The public case names in the package are:
+### 4.3 Required Output
 
-```text
-ariane133
-ariane136
-bp
-bp_be
-bp_fe
-bp_multi
-bp_quad
-swerv_wrapper
-```
-
-The supplied `4_1_cts.def` is the authoritative evaluation input. Placement should be treated as fixed input data.
+| File | Information contained in the file |
+|---|---|
+| `5_1_grt.odb` | Final OpenDB database containing component placement, optimized HBT placement, net/subnet connectivity, and global-routing guides. |
+| `route.guide` | Text representation of the global-routing guide rectangles and their routing layers. |
 
 ## 5. Baseline Results
 
-The table below reports the latest baseline using the supplied post-HBT inputs, the public multi-pass die-by-die GRT implementation, and the hidden multi-pass DRT evaluator with 32 threads and `droute_end_iter=2`. GRT-WL is the sum of the bottom and upper passes. DRC is the unified full-stack count after the evaluator's final net normalization; it is not TritonRoute's per-iteration internal marker count. TNS and WNS are setup metrics reported by OpenSTA after OpenRCX extraction of the final routed ODB.
+The following development baseline was completed on all eight public cases with a 5.0 um HBT pitch, the 3D GRT baseline, the 3D detailed-route evaluator, 32 DRT threads, and `droute_end_iter=2` (initial routing plus two optimization iterations). Runtime includes GRT, DRT, extraction, and final reporting. TNS and WNS are setup metrics reported by OpenSTA after extraction of the final routed database.
 
-| Case | Runtime | GRT-WL (um) | DRT-WL (um) | DRC | TNS (ns) | WNS (ns) |
-|---|---:|---:|---:|---:|---:|---:|
-| `ariane133` | 1:14:01 | 7,518,274 | 5,789,263 | 20,175 | -3,641.05 | -1.58810 |
-| `ariane136` | 1:18:29 | 7,588,734 | 5,809,451 | 20,190 | -732,378 | -33.8851 |
-| `bp_fe` | 0:10:11 | 1,713,704 | 1,423,445 | 5,676 | -2,698.66 | -1.35272 |
-| `bp_be` | 0:20:35 | 2,979,267 | 2,389,764 | 9,010 | -1,526.35 | -1.41182 |
-| `bp` | 1:23:32 | 9,984,157 | 7,846,499 | 20,172 | -43,927.0 | -6.23376 |
-| `bp_multi` | 0:43:16 | 4,968,325 | 3,956,852 | 17,807 | -38,177.9 | -6.49767 |
-| `swerv_wrapper` | 0:27:52* | 4,977,322 | 3,900,344 | 16,878 | -648.691 | -0.826734 |
+| Case | Runtime | HBTs | GRT-WL (um) | DRT-WL (um) | DRC | TNS (ns) | WNS (ns) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `ariane133` | 1:01:16 | 4,025 | 7,474,842 | 5,754,266 | 14,775 | -3,557.00 | -1.57 |
+| `ariane136` | 1:06:21 | 4,046 | 7,559,784 | 5,785,622 | 15,468 | -731,992.50 | -33.88 |
+| `black_parrot` (`bp`) | 1:14:45 | 3,847 | 9,946,163 | 7,814,165 | 18,788 | -43,999.96 | -6.23 |
+| `bp_fe` | 0:11:14 | 1,149 | 1,728,265 | 1,416,297 | 4,220 | -2,697.95 | -1.35 |
+| `bp_be` | 0:21:01 | 1,105 | 2,976,630 | 2,385,904 | 7,895 | -1,532.15 | -1.41 |
+| `bp_multi` | 0:38:56 | 3,072 | 4,894,971 | 3,894,794 | 13,233 | -38,123.66 | -6.50 |
+| `swerv_wrapper` | 0:44:35 | 1,278 | 4,962,166 | 3,891,326 | 15,265 | -652.04 | -0.83 |
+| `bp_quad` | 6:58:05 | 27,835 | 52,751,952 | 41,998,106 | 21,013 | -548,504.44 | -27.91 |

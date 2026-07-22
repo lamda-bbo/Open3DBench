@@ -8,7 +8,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 BOTTOM_MAX_LAYER = 10
 UPPER_MIN_LAYER = 11
@@ -55,6 +55,8 @@ PIN_CONN_RE = re.compile(r"\(\s*(\S+)\s+(\S+)\s*\)")
 MACRO_RE = re.compile(r"^MACRO\s+(\S+)")
 PIN_DIR_RE = re.compile(r"^\s*PIN\s+(\S+)")
 DIRECTION_RE = re.compile(r"^\s*DIRECTION\s+(INPUT|OUTPUT|INOUT)\s*;")
+DEF_LAYER_RE = re.compile(r"\+\s+LAYER\s+(\S+)", re.IGNORECASE)
+METAL_LAYER_RE = re.compile(r"^metal(\d+)$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -164,7 +166,7 @@ def parse_components(def_path: Path) -> dict[str, ComponentInfo]:
             if current_inst is None or current_cell is None:
                 continue
 
-            if "PLACED" not in stripped and "FIXED" not in stripped:
+            if not any(status in stripped for status in ("PLACED", "FIXED", "COVER")):
                 continue
 
             parts = stripped.split()
@@ -183,6 +185,69 @@ def parse_components(def_path: Path) -> dict[str, ComponentInfo]:
             )
 
     return components
+
+
+def routing_layer_die(layer_name: str) -> str | None:
+    """Map a numbered metal layer to its physical die."""
+    match = METAL_LAYER_RE.match(layer_name)
+    if match is None:
+        return None
+    layer_num = int(match.group(1))
+    if layer_num <= BOTTOM_MAX_LAYER:
+        return "bottom"
+    if layer_num >= UPPER_MIN_LAYER:
+        return "upper"
+    return None
+
+
+def parse_pin_die_map(def_path: Path) -> dict[str, str]:
+    """Map top-level DEF pin names to bottom|upper from their routing layers."""
+    pin_die_map: dict[str, str] = {}
+    in_pins = False
+    current_pin: str | None = None
+    current_layers: set[str] = set()
+
+    def flush_pin() -> None:
+        nonlocal current_pin, current_layers
+        if current_pin is None:
+            return
+        dies = {
+            die
+            for layer in current_layers
+            if (die := routing_layer_die(layer)) is not None
+        }
+        if len(dies) > 1:
+            layers = ", ".join(sorted(current_layers))
+            raise ValueError(
+                f"DEF pin {current_pin} spans both dies through layers: {layers}"
+            )
+        if dies:
+            pin_die_map[current_pin] = next(iter(dies))
+        current_pin = None
+        current_layers = set()
+
+    with def_path.open(encoding="utf-8") as def_file:
+        for line in def_file:
+            stripped = line.strip()
+            if stripped.startswith("PINS"):
+                in_pins = True
+                continue
+            if in_pins and stripped.startswith("END PINS"):
+                flush_pin()
+                break
+            if not in_pins:
+                continue
+
+            if stripped.startswith("- "):
+                flush_pin()
+                parts = stripped.split()
+                current_pin = parts[1] if len(parts) >= 2 else None
+            if current_pin is not None:
+                current_layers.update(DEF_LAYER_RE.findall(line))
+                if ";" in line:
+                    flush_pin()
+
+    return pin_die_map
 
 
 def parse_lef_pin_directions(lef_paths: Iterable[Path]) -> dict[str, dict[str, str]]:
@@ -285,8 +350,7 @@ def parse_nets(def_path: Path) -> list[NetRecord]:
                 current_lines = [line.rstrip("\n")]
                 rest = stripped[len("- " + current_name) :].strip()
                 for inst, pin_name in PIN_CONN_RE.findall(rest):
-                    if inst != "PIN":
-                        current_pins.append(PinRef(inst=inst, pin=pin_name))
+                    current_pins.append(PinRef(inst=inst, pin=pin_name))
                 continue
 
             if current_name is None:
@@ -294,8 +358,7 @@ def parse_nets(def_path: Path) -> list[NetRecord]:
 
             current_lines.append(line.rstrip("\n"))
             for inst, pin_name in PIN_CONN_RE.findall(stripped):
-                if inst != "PIN":
-                    current_pins.append(PinRef(inst=inst, pin=pin_name))
+                current_pins.append(PinRef(inst=inst, pin=pin_name))
 
     return nets
 
@@ -312,6 +375,7 @@ def classify_net_pins(
     net_name: str,
     pins: tuple[PinRef, ...],
     inst_die_map: dict[str, str],
+    pin_die_map: dict[str, str] | None = None,
 ) -> str:
     """Classify net as 2d_bottom | 2d_upper | 3d | unknown."""
     if net_name.endswith("_BOT"):
@@ -321,14 +385,9 @@ def classify_net_pins(
 
     dies: set[str] = set()
     for pin_ref in pins:
-        die = inst_die_map.get(pin_ref.inst)
+        die = pin_ref_die(pin_ref, inst_die_map, pin_die_map)
         if die:
             dies.add(die)
-        elif pin_ref.inst.startswith("HBT_") or pin_ref.inst.startswith("LS_HBT_"):
-            if pin_ref.pin == "BOT":
-                dies.add("bottom")
-            elif pin_ref.pin == "TOP":
-                dies.add("upper")
     if "bottom" in dies and "upper" in dies:
         return "3d"
     if dies == {"bottom"}:
@@ -341,12 +400,29 @@ def classify_net_pins(
 def classify_all_nets(
     nets: list[NetRecord],
     inst_die_map: dict[str, str],
+    pin_die_map: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Return mapping net_name -> classification label."""
     return {
-        net.name: classify_net_pins(net.name, net.pins, inst_die_map)
+        net.name: classify_net_pins(net.name, net.pins, inst_die_map, pin_die_map)
         for net in nets
     }
+
+
+def pin_ref_die(
+    pin_ref: PinRef,
+    inst_die_map: dict[str, str],
+    pin_die_map: dict[str, str] | None = None,
+) -> str | None:
+    """Return the die touched by one instance pin or top-level DEF pin."""
+    if pin_ref.inst == "PIN":
+        return (pin_die_map or {}).get(pin_ref.pin)
+    if pin_ref.inst.startswith("HBT_") or pin_ref.inst.startswith("LS_HBT_"):
+        if pin_ref.pin == "BOT":
+            return "bottom"
+        if pin_ref.pin == "TOP":
+            return "upper"
+    return inst_die_map.get(pin_ref.inst)
 
 
 def choose_hbt_type(
