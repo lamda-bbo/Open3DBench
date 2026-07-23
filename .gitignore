@@ -1,3 +1,11 @@
 Place-MoL/benchmarks/
 Place-LoL/benchmarks/
 OpenROAD-3D/flow/evaluation_pack/
+.contest/
+input/
+output/
+reports/
+.DS_Store
+__pycache__/
+*.pyc
+open3dbench_*input*.tar.gz

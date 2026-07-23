@@ -6,6 +6,42 @@ This repository provides the public code, benchmark interface, and baseline for 
 
 English title: **Timing-Driven 3D Global Routing with Hybrid Bonding Co-Optimization for Face-to-Face-Bonded 3D-IC**
 
+## Quick Start
+
+Install Docker, then pull the contest image and clone this branch:
+
+```bash
+docker pull shiyunqi/open3dbench:contest
+git clone -b EDA_contest https://github.com/lamda-bbo/Open3DBench.git
+cd Open3DBench
+./start_contest_docker.sh
+```
+
+The repository is mounted at `/workspace/Open3DBench`. Put the released input
+package below `input/`, then build and run the public GRT baseline:
+
+```bash
+contest build 32
+contest run-grt \
+  bp_fe \
+  /workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260716_r2 \
+  baseline
+```
+
+Evaluate the result with the fixed binary DRT/DRC/STA evaluator:
+
+```bash
+contest evaluate \
+  bp_fe \
+  /workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260716_r2 \
+  /workspace/Open3DBench/output/bp_fe/baseline
+```
+
+Public build files and caches are stored under `.contest/`. GRT outputs are
+written below `output/`, while evaluator metrics are written below `reports/`.
+These generated directories are ignored by Git. One-shot commands such as
+`./start_contest_docker.sh build 32` are also supported.
+
 ## 1. Contest Description
 
 The contest asks participants to co-optimize Metal Layer Sharing net selection and subnet assignment, incremental HBT placement, and timing-driven 3D global routing. The submitted algorithm must produce a routed OpenDB database containing the resulting guides, HBT placement, and net/subnet connectivity.
