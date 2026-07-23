@@ -19,6 +19,11 @@ HBT_PITCH_UM = float(os.environ.get("HBT_PITCH_UM", str(METAL_PITCH_UM)))
 HBT_PITCH_DBU = int(os.environ.get("HBT_PITCH_DBU", "0"))
 # Greedy search step = HBT pitch * coarse factor (default 4 -> 6.4 um).
 HBT_GRID_COARSE_FACTOR = int(os.environ.get("HBT_GRID_COARSE_FACTOR", "4"))
+# Exact HBT grids that are not commensurate with the metal-track lattice need
+# off-track terminal access in DRT.  Keep track alignment enabled by default.
+HBT_REQUIRE_METAL_TRACK_ALIGNMENT = (
+    os.environ.get("HBT_REQUIRE_METAL_TRACK_ALIGNMENT", "1") != "0"
+)
 
 
 @dataclass(frozen=True)
@@ -34,6 +39,7 @@ class AlignedHbtGrid:
     search_step_x: int
     search_step_y: int
     hbt_size: int
+    require_metal_track_alignment: bool
 
     @property
     def origin_offset_x(self) -> int:
@@ -61,6 +67,8 @@ class AlignedHbtGrid:
 
     def center_on_metal_track(self, origin: tuple[int, int]) -> bool:
         """Return True when HBT macro center aligns with metal10/m11 tracks."""
+        if not self.require_metal_track_alignment:
+            return True
         cx, cy = hbt_center_from_origin(origin[0], origin[1], size=self.hbt_size)
         on_x = (cx - self.metal_offset_x) % self.metal_pitch_x == 0
         on_y = (cy - self.metal_offset_y) % self.metal_pitch_y == 0
@@ -99,7 +107,9 @@ def default_aligned_hbt_grid() -> AlignedHbtGrid:
             f"step=({search_step_x},{search_step_y}) hbt=({hbt_pitch_x},{hbt_pitch_y})"
         )
         raise ValueError(msg)
-    if hbt_pitch_x % metal_pitch_x != 0 or hbt_pitch_y % metal_pitch_y != 0:
+    if HBT_REQUIRE_METAL_TRACK_ALIGNMENT and (
+        hbt_pitch_x % metal_pitch_x != 0 or hbt_pitch_y % metal_pitch_y != 0
+    ):
         msg = (
             "HBT pitch must be a multiple of metal pitch: "
             f"hbt=({hbt_pitch_x},{hbt_pitch_y}) metal=({metal_pitch_x},{metal_pitch_y})"
@@ -119,6 +129,7 @@ def default_aligned_hbt_grid() -> AlignedHbtGrid:
         search_step_x=search_step_x,
         search_step_y=search_step_y,
         hbt_size=HBT_SIZE_DBU,
+        require_metal_track_alignment=HBT_REQUIRE_METAL_TRACK_ALIGNMENT,
     )
 
 

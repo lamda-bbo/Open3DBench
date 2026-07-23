@@ -302,7 +302,7 @@ END metal10
 
 LAYER hb_layer
   TYPE CUT ;
-  SPACING 1 ;
+  SPACING 4.5 ;
   WIDTH 0.5 ;
   RESISTANCE 0.01 ;
 END hb_layer
@@ -811,9 +811,9 @@ VIA hb_layer_0 DEFAULT
   LAYER hb_layer ;
     RECT -0.25 -0.25 0.25 0.25 ;
   LAYER metal10 ;
-    RECT -0.25 -0.25 0.25 0.25 ;
+    RECT -0.4 -0.4 0.4 0.4 ;
   LAYER metal11 ;
-    RECT -0.25 -0.25 0.25 0.25 ;
+    RECT -0.4 -0.4 0.4 0.4 ;
 END hb_layer_0
 
 VIA via11_0 DEFAULT
@@ -1251,12 +1251,12 @@ END Via9Array-0
 
 VIARULE hb_layerArray-0 GENERATE
   LAYER metal11 ;
-    ENCLOSURE 0 0 ;
+    ENCLOSURE 0.15 0.15 ;
   LAYER metal10 ;
-    ENCLOSURE 0 0 ;
+    ENCLOSURE 0.15 0.15 ;
   LAYER hb_layer ;
     RECT -0.25 -0.25 0.25 0.25 ;
-    SPACING 1 BY 1 ;
+    SPACING 5 BY 5 ;
 END hb_layerArray-0
 
 VIARULE Via11Array-0 GENERATE
