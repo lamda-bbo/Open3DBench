@@ -8,7 +8,8 @@ ORFS_ROOT=$(realpath "${FLOW_HOME}/../")
 EXCLUDED_VARS='MAKE|MAKEFLAGS|PERL5LIB|QT_QPA_PLATFORM'
 EXCLUDED_VARS+='|RESULTS_ODB|PUBLIC|ISSUE_SCRIPTS'
 EXCLUDED_VARS+='|HOME|PWD|MAIL|SHELL|NPROC|NUM_CORES|FLOW_HOME|\\n'
-EXCLUDED_VARS+='|UNSET_VARIABLES_NAMES|do-step|get_variables|do-copy'
+EXCLUDED_VARS+='|UNSET_VARIABLES_NAMES|PRESERVED_MAKE_ARGS'
+EXCLUDED_VARS+='|do-step|get_variables|do-copy'
 EXCLUDED_VARS+='|CURDIR|OPEN_GUI|OPEN_GUI_SHORTCUT'
 EXCLUDED_VARS+='|COMMAND_LINE_ARGS'
 
@@ -20,6 +21,11 @@ while read -r VAR; do
     if [[ ${VAR} != *"="* ]] ; then
         # skip variables that do not have an equal sign
         # they are invalid in shell
+        continue
+    fi
+    if [[ "${VAR}" == PRESERVED_MAKE_ARGS=* ]]; then
+        # This is Make syntax, not a runtime environment variable. Its value
+        # contains an assignment and nested quotes that are invalid in vars.sh.
         continue
     fi
     name="${VAR%=*}"
