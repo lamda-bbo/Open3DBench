@@ -29,10 +29,10 @@ Download the public input archive from the link in Section 4, place it below
 ```bash
 mkdir -p input
 tar -xzf \
-  input/open3dbench_8cases_post_hbt_input_20260716_r2.tar.gz \
+  input/open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz \
   -C input
 test -f \
-  input/open3dbench_8cases_post_hbt_input_20260716_r2/cases/bp_fe/grt_input/4_1_cts.def
+  input/open3dbench_8cases_post_hbt_input_20260724_r3/cases/bp_fe/grt_input/4_1_cts.def
 ```
 
 ### Start the Container
@@ -56,6 +56,26 @@ The first build compiles the complete public OpenROAD baseline. Later builds
 only rebuild files affected by source changes under
 `OpenROAD-GRT-HBT/openroad_src`.
 
+The image contains the fixed DRT/DRC/STA evaluator as binaries only; its
+private source is not included. The participant-modifiable GRT/HBT baseline
+remains in this Git branch and is mounted into the container at runtime.
+
+The wrapper above is equivalent to the following explicit Docker command:
+
+```bash
+mkdir -p .contest/home input output reports
+docker run --rm -it \
+  --init \
+  --user "$(id -u):$(id -g)" \
+  --ulimit stack=-1:-1 \
+  -e HOME=/workspace/Open3DBench/.contest/home \
+  -e CONTEST_ROOT=/workspace/Open3DBench \
+  -v "$PWD:/workspace/Open3DBench" \
+  -w /workspace/Open3DBench \
+  shiyunqi/open3dbench:contest-20260724 \
+  shell
+```
+
 The same commands can be run directly from the host without opening an
 interactive shell:
 
@@ -69,7 +89,7 @@ interactive shell:
 Run one case from inside the container:
 
 ```bash
-INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260716_r2
+INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
 contest run-grt bp_fe "$INPUT" baseline
 ```
 
@@ -89,7 +109,7 @@ The fixed evaluator runs detailed routing, unified DRC, RC extraction, and
 OpenSTA timing analysis as one atomic command:
 
 ```bash
-INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260716_r2
+INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
 contest evaluate \
   bp_fe \
   "$INPUT" \
@@ -102,7 +122,7 @@ The equivalent host-side command is:
 ```bash
 ./start_contest_docker.sh evaluate \
   bp_fe \
-  /workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260716_r2 \
+  /workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3 \
   /workspace/Open3DBench/output/bp_fe/baseline \
   /workspace/Open3DBench/reports/bp_fe/baseline
 ```
@@ -129,7 +149,7 @@ evaluate all submissions sequentially:
 ```bash
 set -euo pipefail
 
-INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260716_r2
+INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
 VARIANT=baseline
 CASES=(
   ariane133
@@ -202,8 +222,17 @@ Input package download:
 
 > [Download the public input package from Google Drive](https://drive.google.com/file/d/1o4ExxQX9lBswf4VWYGUsLMqjWBKLCTW6/view?usp=share_link)
 
+Expected archive: `open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz`
+
+SHA-256:
+`681d3f041c389097db348e622e21eea0b043c43a14bf6e5648b9316fbb473005`
+
+Revision r3 preserves the r2 contents while correcting the post-CTS
+per-die legalization of `bp_quad`; HBT coordinates and net connectivity are
+unchanged.
+
 ```text
-open3dbench_8cases_post_hbt_input_20260716_r2/
+open3dbench_8cases_post_hbt_input_20260724_r3/
 ├── README.txt
 ├── MANIFEST.sha256
 ├── cases/<case>/
@@ -244,15 +273,22 @@ The input DEF provides a reproducible baseline state. Contest algorithms may cha
 
 ## 5. Baseline Results
 
-The following development baseline was completed on all eight public cases with a 5.0 um HBT pitch, the 3D GRT baseline, the 3D detailed-route evaluator, 32 DRT threads, and `droute_end_iter=2` (initial routing plus two optimization iterations). Runtime includes GRT, DRT, extraction, and final reporting. TNS and WNS are setup metrics reported by OpenSTA after extraction of the final routed database.
+The following clean-machine baseline was completed on all eight public cases
+with input revision r3, a 5.0 um HBT pitch, the 3D GRT baseline, the binary 3D
+detailed-route evaluator, 32 DRT threads, and `droute_end_iter=2` (initial
+routing plus two optimization iterations). Runtime is sequential wall-clock
+time for GRT plus the complete evaluator, including DRT, unified DRC, RC
+extraction, and final reporting, rounded to the nearest second. TNS and WNS are
+setup metrics reported by OpenSTA after extraction of the final routed
+database.
 
 | Case | Runtime | HBTs | GRT-WL (um) | DRT-WL (um) | DRC | TNS (ns) | WNS (ns) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `ariane133` | 1:01:16 | 4,025 | 7,474,842 | 5,754,266 | 14,775 | -3,557.00 | -1.57 |
-| `ariane136` | 1:06:21 | 4,046 | 7,559,784 | 5,785,622 | 15,468 | -731,992.50 | -33.88 |
-| `black_parrot` (`bp`) | 1:14:45 | 3,847 | 9,946,163 | 7,814,165 | 18,788 | -43,999.96 | -6.23 |
-| `bp_fe` | 0:11:14 | 1,149 | 1,728,265 | 1,416,297 | 4,220 | -2,697.95 | -1.35 |
-| `bp_be` | 0:21:01 | 1,105 | 2,976,630 | 2,385,904 | 7,895 | -1,532.15 | -1.41 |
-| `bp_multi` | 0:38:56 | 3,072 | 4,894,971 | 3,894,794 | 13,233 | -38,123.66 | -6.50 |
-| `swerv_wrapper` | 0:44:35 | 1,278 | 4,962,166 | 3,891,326 | 15,265 | -652.04 | -0.83 |
-| `bp_quad` | 6:58:05 | 27,835 | 52,751,952 | 41,998,106 | 21,013 | -548,504.44 | -27.91 |
+| `ariane133` | 0:46:36 | 4,025 | 7,296,432 | 5,677,850 | 20,136 | -3,588.38 | -1.58131 |
+| `ariane136` | 0:48:33 | 4,046 | 7,318,850 | 5,667,230 | 20,498 | -733,528 | -33.9244 |
+| `black_parrot` (`bp`) | 0:54:51 | 3,847 | 9,878,607 | 7,812,700 | 23,346 | -44,016.7 | -6.23160 |
+| `bp_fe` | 0:07:58 | 1,149 | 1,660,760 | 1,378,720 | 5,618 | -2,697.30 | -1.35095 |
+| `bp_be` | 0:13:34 | 1,105 | 2,909,234 | 2,368,436 | 9,744 | -1,524.91 | -1.41043 |
+| `bp_multi` | 0:28:26 | 3,072 | 4,882,352 | 3,883,294 | 17,236 | -38,124.9 | -6.49778 |
+| `swerv_wrapper` | 0:27:00 | 1,278 | 4,608,273 | 3,723,482 | 17,065 | -651.869 | -0.829784 |
+| `bp_quad` | 4:49:47 | 27,835 | 51,423,464 | 41,690,978 | 31,078 | -547,196 | -27.9044 |
