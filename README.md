@@ -13,7 +13,7 @@ tag is recommended for reproducible experiments; `latest` points to the
 current released evaluator.
 
 ```bash
-docker pull shiyunqi/3dbench-contest:20260724
+docker pull gaocr/3dbench-contest:20260724
 
 git clone --branch EDA_contest --single-branch \
   https://github.com/lamda-bbo/Open3DBench.git
@@ -69,7 +69,7 @@ docker run --rm -it \
   -e CONTEST_ROOT=/workspace/Open3DBench \
   -v "$PWD:/workspace/Open3DBench" \
   -w /workspace/Open3DBench \
-  shiyunqi/3dbench-contest:20260724 \
+  gaocr/3dbench-contest:20260724 \
   shell
 ```
 
