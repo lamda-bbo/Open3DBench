@@ -9,14 +9,11 @@ English title: **Timing-Driven 3D Global Routing with Hybrid Bonding Co-Optimiza
 ## Quick Start
 
 Install Docker, then pull the contest image and clone this branch. The dated
-tag is recommended for reproducible experiments; `contest` points to the
+tag is recommended for reproducible experiments; `latest` points to the
 current released evaluator.
 
 ```bash
-docker pull shiyunqi/open3dbench:contest-20260724
-docker tag \
-  shiyunqi/open3dbench:contest-20260724 \
-  shiyunqi/open3dbench:contest
+docker pull shiyunqi/3dbench-contest:20260724
 
 git clone --branch EDA_contest --single-branch \
   https://github.com/lamda-bbo/Open3DBench.git
@@ -72,7 +69,7 @@ docker run --rm -it \
   -e CONTEST_ROOT=/workspace/Open3DBench \
   -v "$PWD:/workspace/Open3DBench" \
   -w /workspace/Open3DBench \
-  shiyunqi/open3dbench:contest-20260724 \
+  shiyunqi/3dbench-contest:20260724 \
   shell
 ```
 

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-image=${OPEN3DBENCH_CONTEST_IMAGE:-shiyunqi/open3dbench:contest}
+image=${OPEN3DBENCH_CONTEST_IMAGE:-shiyunqi/3dbench-contest:20260724}
 docker_bin=${DOCKER_BIN:-docker}
 
 mkdir -p \
