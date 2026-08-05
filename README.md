@@ -28,7 +28,7 @@ it:
 ```bash
 mkdir -p input
 tar -xzf \
-  input/open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz \
+  input/open3dbench_8cases_post_hbt_input_20260724.tar.gz \
   -C input
 ```
 
@@ -44,7 +44,7 @@ baseline with 32 parallel build jobs, then run `bp_fe`:
 ```bash
 contest build 32
 
-INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
+INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724
 contest run-grt bp_fe "$INPUT" baseline
 ```
 
@@ -77,11 +77,11 @@ Open3DBench/
 
 The supplied baseline could be the starting point for contest development, which does not introduce additional Metal Layer Sharing nets.
 
-### 3.1 Source-Level GRT Changes
+### 3.1 Die-by-die GRT baseline
 
 The provided OpenROAD source adds a per-net routing-layer range to `GlobalRouter` and propagates it into FastRoute. The allowed layer range is enforced during topology generation, resource accounting, maze expansion, and route reconstruction, so a die-local net cannot move to the opposite die as a congestion fallback. HBT pins are retained as real routing terminals that can be naturally processed by the router.
 
-### 3.2 Die-by-Die Multi-Pass Baseline
+### 3.2 Multi-pass run
 
 1. Classify the input net into bottom-die and top-die subnets.
 2. Route bottom-die subnets on `metal1-metal10` and top-die subnets on `metal11-metal20` in isolated OpenROAD processes.
@@ -93,17 +93,13 @@ Input package download:
 
 > [Download the public input package from Google Drive](https://drive.google.com/file/d/1o4ExxQX9lBswf4VWYGUsLMqjWBKLCTW6/view?usp=share_link)
 
-Expected archive: `open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz`
+Expected archive: `open3dbench_8cases_post_hbt_input_20260724.tar.gz`
 
 SHA-256:
-`681d3f041c389097db348e622e21eea0b043c43a14bf6e5648b9316fbb473005`
-
-Revision r3 preserves the r2 contents while correcting the post-CTS
-per-die legalization of `bp_quad`; HBT coordinates and net connectivity are
-unchanged.
+`6d9884d2fb4946c9bfd15532b4aef58583a6ac877b5a510deed982683e41eddd`
 
 ```text
-open3dbench_8cases_post_hbt_input_20260724_r3/
+open3dbench_8cases_post_hbt_input_20260724/
 ├── README.txt
 ├── MANIFEST.sha256
 ├── cases/<case>/
@@ -145,13 +141,13 @@ The input DEF provides a reproducible baseline state. Contest algorithms may cha
 ## 5. Baseline Results
 
 The following clean-machine baseline was completed on all eight public cases
-with input revision r3, a 5.0 um HBT pitch, the 3D GRT baseline, the binary 3D
-detailed-route evaluator, 32 DRT threads, and `droute_end_iter=2` (initial
-routing plus two optimization iterations). Runtime is sequential wall-clock
-time for GRT plus the complete evaluator, including DRT, unified DRC, RC
-extraction, and final reporting, rounded to the nearest second. TNS and WNS are
-setup metrics reported by OpenSTA after extraction of the final routed
-database.
+with the supplied input package, a 5.0 um HBT pitch, the 3D GRT baseline, the
+binary 3D detailed-route evaluator, 32 DRT threads, and `droute_end_iter=2`
+(initial routing plus two optimization iterations). Runtime is sequential
+wall-clock time for GRT plus the complete evaluator, including DRT, unified
+DRC, RC extraction, and final reporting, rounded to the nearest second. TNS
+and WNS are setup metrics reported by OpenSTA after extraction of the final
+routed database.
 
 | Case | Runtime | HBTs | GRT-WL (um) | DRT-WL (um) | DRC | TNS (ns) | WNS (ns) |
 |---|---:|---:|---:|---:|---:|---:|---:|
