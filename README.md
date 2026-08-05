@@ -6,7 +6,11 @@ This repository provides the public code, benchmark interface, and baseline for 
 
 English title: **Timing-Driven 3D Global Routing with Hybrid Bonding Co-Optimization for Face-to-Face-Bonded 3D-IC**
 
-## Quick Start
+## 1. Contest Description
+
+The contest asks participants to co-optimize Metal Layer Sharing net selection and subnet assignment, incremental HBT placement, and timing-driven 3D global routing. The submitted algorithm must produce a routed OpenDB database containing the resulting guides, HBT placement, and net/subnet connectivity.
+
+## 2. Quick Start
 
 Pull the contest image and clone the `EDA_contest` branch:
 
@@ -28,24 +32,26 @@ tar -xzf \
   -C input
 ```
 
-Compile the GRT baseline with 32 parallel build jobs:
+Start the contest container from the repository root:
 
 ```bash
-./start_contest_docker.sh build 32
+./start_contest_docker.sh
 ```
 
-Run the GRT baseline on `bp_fe`:
+All subsequent commands are run inside this container. Compile the GRT
+baseline with 32 parallel build jobs, then run `bp_fe`:
 
 ```bash
+contest build 32
+
 INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
-./start_contest_docker.sh run-grt bp_fe "$INPUT" baseline
+contest run-grt bp_fe "$INPUT" baseline
 ```
 
 Run the fixed DRT, DRC, and timing evaluator:
 
 ```bash
-INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
-./start_contest_docker.sh evaluate \
+contest evaluate \
   bp_fe \
   "$INPUT" \
   /workspace/Open3DBench/output/bp_fe/baseline \
@@ -57,11 +63,7 @@ Replace `bp_fe` and `baseline` to run another case or keep multiple experiment
 outputs. GRT results are stored under `output/`, and evaluation reports are
 stored under `reports/`.
 
-## 1. Contest Description
-
-The contest asks participants to co-optimize Metal Layer Sharing net selection and subnet assignment, incremental HBT placement, and timing-driven 3D global routing. The submitted algorithm must produce a routed OpenDB database containing the resulting guides, HBT placement, and net/subnet connectivity.
-
-## 2. Repository and Baseline
+## 3. Repository and Baseline
 
 ```text
 Open3DBench/
@@ -75,11 +77,11 @@ Open3DBench/
 
 The supplied baseline could be the starting point for contest development, which does not introduce additional Metal Layer Sharing nets.
 
-### 2.1 Source-Level GRT Changes
+### 3.1 Source-Level GRT Changes
 
 The provided OpenROAD source adds a per-net routing-layer range to `GlobalRouter` and propagates it into FastRoute. The allowed layer range is enforced during topology generation, resource accounting, maze expansion, and route reconstruction, so a die-local net cannot move to the opposite die as a congestion fallback. HBT pins are retained as real routing terminals that can be naturally processed by the router.
 
-### 2.2 Die-by-Die Multi-Pass Baseline
+### 3.2 Die-by-Die Multi-Pass Baseline
 
 1. Classify the input net into bottom-die and top-die subnets.
 2. Route bottom-die subnets on `metal1-metal10` and top-die subnets on `metal11-metal20` in isolated OpenROAD processes.
