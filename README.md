@@ -8,23 +8,54 @@ English title: **Timing-Driven 3D Global Routing with Hybrid Bonding Co-Optimiza
 
 ## Quick Start
 
-Install Docker, then pull the contest image and clone this branch. The dated
-tag is recommended for reproducible experiments; `latest` points to the
-current released evaluator.
+The commands below cover the complete baseline workflow: clone the repository,
+pull the contest image, compile the participant-modifiable GRT source, run GRT,
+and invoke the fixed DRT/DRC/STA evaluator. Run all host-side commands from the
+repository root.
+
+### 0. Clone the Repository
+
+For organizer development, clone the private mirror:
 
 ```bash
-docker pull gaocr/3dbench-contest:20260724
+git clone --branch EDA_contest --single-branch \
+  git@git.nju.edu.cn:gaocr/Open3DBench-EDA-contest.git Open3DBench
+cd Open3DBench
+```
 
+The public contest release uses the corresponding GitHub branch:
+
+```bash
 git clone --branch EDA_contest --single-branch \
   https://github.com/lamda-bbo/Open3DBench.git
 cd Open3DBench
 ```
 
-Download the public input archive from the link in Section 4, place it below
-`input/`, and extract it:
+Use only one of the two clone commands above.
+
+### 1. Pull the Contest Docker Image
+
+Install Docker and pull the pinned evaluator image:
+
+```bash
+docker pull gaocr/3dbench-contest:20260724
+docker image inspect gaocr/3dbench-contest:20260724 \
+  --format 'image={{.Id}} size={{.Size}}'
+```
+
+The dated tag is recommended for reproducible experiments. The startup script
+uses this tag by default; it can be overridden with
+`OPEN3DBENCH_CONTEST_IMAGE=<image>` when testing another image.
+
+### 2. Prepare the Input Package
+
+Download the public archive from the link in Section 4, place it below
+`input/`, verify its checksum, and extract it:
 
 ```bash
 mkdir -p input
+echo "681d3f041c389097db348e622e21eea0b043c43a14bf6e5648b9316fbb473005  input/open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz" \
+  | sha256sum -c -
 tar -xzf \
   input/open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz \
   -C input
@@ -32,32 +63,33 @@ test -f \
   input/open3dbench_8cases_post_hbt_input_20260724_r3/cases/bp_fe/grt_input/4_1_cts.def
 ```
 
-### Start the Container
+On macOS, replace `sha256sum -c -` with
+`shasum -a 256 input/open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz`
+and compare the printed checksum with the value above.
 
-Start an interactive container from the repository root:
+### 3. Check or Enter the Container
+
+Check the mounted source tree and evaluator revisions directly from the host:
+
+```bash
+./start_contest_docker.sh status
+```
+
+To open an interactive contest shell instead:
 
 ```bash
 ./start_contest_docker.sh
 ```
 
-The current repository is mounted at `/workspace/Open3DBench`. Inside the
-container, verify the source and evaluator revisions and incrementally compile
-the public OpenROAD GRT baseline:
+Then run commands at the container prompt, for example:
 
 ```bash
 contest status
-contest build 32
 ```
 
-The first build compiles the complete public OpenROAD baseline. Later builds
-only rebuild files affected by source changes under
-`OpenROAD-GRT-HBT/openroad_src`.
-
-The image contains the fixed DRT/DRC/STA evaluator as binaries only; its
-private source is not included. The participant-modifiable GRT/HBT baseline
-remains in this Git branch and is mounted into the container at runtime.
-
-The wrapper above is equivalent to the following explicit Docker command:
+The current repository is mounted at `/workspace/Open3DBench`, so generated
+build files, GRT submissions, and reports remain in the host repository after
+the container exits. The wrapper is equivalent to this explicit command:
 
 ```bash
 mkdir -p .contest/home input output reports
@@ -73,24 +105,53 @@ docker run --rm -it \
   shell
 ```
 
-The same commands can be run directly from the host without opening an
-interactive shell:
+### 4. Compile the GRT Baseline
+
+Compile with 32 parallel build jobs from the host:
 
 ```bash
-./start_contest_docker.sh status
 ./start_contest_docker.sh build 32
 ```
 
-### Run the GRT Baseline
+The equivalent command inside an interactive contest shell is:
 
-Run one case from inside the container:
+```bash
+contest build 32
+```
+
+Here, `32` is the number of parallel **compilation jobs**, not a DRT thread or
+iteration setting. The first build compiles the complete public OpenROAD
+baseline. Later calls incrementally rebuild only files affected by source
+changes under `OpenROAD-GRT-HBT/openroad_src`.
+
+The participant-modifiable GRT/HBT code is provided by this Git repository.
+The private die-by-die DRT changes and the fixed scoring flow are supplied only
+through evaluator binaries in the Docker image; they are not rebuilt by
+`contest build`.
+
+### 5. Run the GRT Algorithm
+
+Run `bp_fe` from the host after compiling:
 
 ```bash
 INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
-contest run-grt bp_fe "$INPUT" baseline
+CASE=bp_fe
+VARIANT=baseline
+
+./start_contest_docker.sh run-grt "$CASE" "$INPUT" "$VARIANT"
 ```
 
-The submission is written to:
+The equivalent command inside an interactive contest shell is:
+
+```bash
+contest run-grt bp_fe \
+  /workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3 \
+  baseline
+```
+
+`VARIANT` is only an output label used to keep different experiments separate;
+for example, `manual_test` and `baseline` do not select different algorithms by
+themselves. The GRT submission is written to:
 
 ```text
 output/bp_fe/baseline/
@@ -100,24 +161,28 @@ output/bp_fe/baseline/
 └── submission.env
 ```
 
-### Run the DRT, DRC, and Timing Evaluator
+### 6. Run the DRT, DRC, and Timing Evaluator
 
 The fixed evaluator runs detailed routing, unified DRC, RC extraction, and
-OpenSTA timing analysis as one atomic command:
+OpenSTA timing analysis as one atomic operation. Evaluate the GRT output from
+the host with:
 
 ```bash
 INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
-contest evaluate \
-  bp_fe \
+CASE=bp_fe
+VARIANT=baseline
+
+./start_contest_docker.sh evaluate \
+  "$CASE" \
   "$INPUT" \
-  /workspace/Open3DBench/output/bp_fe/baseline \
-  /workspace/Open3DBench/reports/bp_fe/baseline
+  "/workspace/Open3DBench/output/${CASE}/${VARIANT}" \
+  "/workspace/Open3DBench/reports/${CASE}/${VARIANT}"
 ```
 
-The equivalent host-side command is:
+The equivalent command inside an interactive contest shell is:
 
 ```bash
-./start_contest_docker.sh evaluate \
+contest evaluate \
   bp_fe \
   /workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3 \
   /workspace/Open3DBench/output/bp_fe/baseline \
@@ -138,7 +203,7 @@ command that accepts a participant-modifiable post-DRT database is not
 provided, because modifying that intermediate database would invalidate the
 fixed-evaluator scoring contract.
 
-### Run All Eight Cases
+### 7. Run All Eight Cases
 
 The following host-side commands compile once, run all GRT baselines, and then
 evaluate all submissions sequentially:
