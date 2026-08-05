@@ -8,247 +8,54 @@ English title: **Timing-Driven 3D Global Routing with Hybrid Bonding Co-Optimiza
 
 ## Quick Start
 
-The commands below cover the complete baseline workflow: clone the repository,
-pull the contest image, compile the participant-modifiable GRT source, run GRT,
-and invoke the fixed DRT/DRC/STA evaluator. Run all host-side commands from the
-repository root.
-
-### 0. Clone the Repository
-
-For organizer development, clone the private mirror:
+Pull the contest image and clone the `EDA_contest` branch:
 
 ```bash
-git clone --branch EDA_contest --single-branch \
-  git@git.nju.edu.cn:gaocr/Open3DBench-EDA-contest.git Open3DBench
-cd Open3DBench
-```
+docker pull gaocr/3dbench-contest:20260724
 
-The public contest release uses the corresponding GitHub branch:
-
-```bash
 git clone --branch EDA_contest --single-branch \
   https://github.com/lamda-bbo/Open3DBench.git
 cd Open3DBench
 ```
 
-Use only one of the two clone commands above.
-
-### 1. Pull the Contest Docker Image
-
-Install Docker and pull the pinned evaluator image:
-
-```bash
-docker pull gaocr/3dbench-contest:20260724
-docker image inspect gaocr/3dbench-contest:20260724 \
-  --format 'image={{.Id}} size={{.Size}}'
-```
-
-The dated tag is recommended for reproducible experiments. The startup script
-uses this tag by default; it can be overridden with
-`OPEN3DBENCH_CONTEST_IMAGE=<image>` when testing another image.
-
-### 2. Prepare the Input Package
-
-Download the public archive from the link in Section 4, place it below
-`input/`, verify its checksum, and extract it:
+Download the input archive from Section 4, place it in `input/`, and extract
+it:
 
 ```bash
 mkdir -p input
-echo "681d3f041c389097db348e622e21eea0b043c43a14bf6e5648b9316fbb473005  input/open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz" \
-  | sha256sum -c -
 tar -xzf \
   input/open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz \
   -C input
-test -f \
-  input/open3dbench_8cases_post_hbt_input_20260724_r3/cases/bp_fe/grt_input/4_1_cts.def
 ```
 
-On macOS, replace `sha256sum -c -` with
-`shasum -a 256 input/open3dbench_8cases_post_hbt_input_20260724_r3.tar.gz`
-and compare the printed checksum with the value above.
-
-### 3. Check or Enter the Container
-
-Check the mounted source tree and evaluator revisions directly from the host:
-
-```bash
-./start_contest_docker.sh status
-```
-
-To open an interactive contest shell instead:
-
-```bash
-./start_contest_docker.sh
-```
-
-Then run commands at the container prompt, for example:
-
-```bash
-contest status
-```
-
-The current repository is mounted at `/workspace/Open3DBench`, so generated
-build files, GRT submissions, and reports remain in the host repository after
-the container exits. The wrapper is equivalent to this explicit command:
-
-```bash
-mkdir -p .contest/home input output reports
-docker run --rm -it \
-  --init \
-  --user "$(id -u):$(id -g)" \
-  --ulimit stack=-1:-1 \
-  -e HOME=/workspace/Open3DBench/.contest/home \
-  -e CONTEST_ROOT=/workspace/Open3DBench \
-  -v "$PWD:/workspace/Open3DBench" \
-  -w /workspace/Open3DBench \
-  gaocr/3dbench-contest:20260724 \
-  shell
-```
-
-### 4. Compile the GRT Baseline
-
-Compile with 32 parallel build jobs from the host:
+Compile the GRT baseline with 32 parallel build jobs:
 
 ```bash
 ./start_contest_docker.sh build 32
 ```
 
-The equivalent command inside an interactive contest shell is:
-
-```bash
-contest build 32
-```
-
-Here, `32` is the number of parallel **compilation jobs**, not a DRT thread or
-iteration setting. The first build compiles the complete public OpenROAD
-baseline. Later calls incrementally rebuild only files affected by source
-changes under `OpenROAD-GRT-HBT/openroad_src`.
-
-The participant-modifiable GRT/HBT code is provided by this Git repository.
-The private die-by-die DRT changes and the fixed scoring flow are supplied only
-through evaluator binaries in the Docker image; they are not rebuilt by
-`contest build`.
-
-### 5. Run the GRT Algorithm
-
-Run `bp_fe` from the host after compiling:
+Run the GRT baseline on `bp_fe`:
 
 ```bash
 INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
-CASE=bp_fe
-VARIANT=baseline
-
-./start_contest_docker.sh run-grt "$CASE" "$INPUT" "$VARIANT"
+./start_contest_docker.sh run-grt bp_fe "$INPUT" baseline
 ```
 
-The equivalent command inside an interactive contest shell is:
-
-```bash
-contest run-grt bp_fe \
-  /workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3 \
-  baseline
-```
-
-`VARIANT` is only an output label used to keep different experiments separate;
-for example, `manual_test` and `baseline` do not select different algorithms by
-themselves. The GRT submission is written to:
-
-```text
-output/bp_fe/baseline/
-├── 5_1_grt.odb
-├── die_net_lists/
-├── route.guide
-└── submission.env
-```
-
-### 6. Run the DRT, DRC, and Timing Evaluator
-
-The fixed evaluator runs detailed routing, unified DRC, RC extraction, and
-OpenSTA timing analysis as one atomic operation. Evaluate the GRT output from
-the host with:
+Run the fixed DRT, DRC, and timing evaluator:
 
 ```bash
 INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
-CASE=bp_fe
-VARIANT=baseline
-
 ./start_contest_docker.sh evaluate \
-  "$CASE" \
-  "$INPUT" \
-  "/workspace/Open3DBench/output/${CASE}/${VARIANT}" \
-  "/workspace/Open3DBench/reports/${CASE}/${VARIANT}"
-```
-
-The equivalent command inside an interactive contest shell is:
-
-```bash
-contest evaluate \
   bp_fe \
-  /workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3 \
+  "$INPUT" \
   /workspace/Open3DBench/output/bp_fe/baseline \
   /workspace/Open3DBench/reports/bp_fe/baseline
-```
-
-DRT wirelength and DRC are reported in `metrics.json`,
-`wirelength.rpt`, and `5_route_drc.rpt`. TNS and WNS are reported in
-`metrics.json`, with the complete timing report in `6_report.log` and the
-machine-readable OpenROAD metrics in `6_report.json`:
-
-```bash
 cat reports/bp_fe/baseline/metrics.json
 ```
 
-DRT and timing are intentionally evaluated together. A standalone timing
-command that accepts a participant-modifiable post-DRT database is not
-provided, because modifying that intermediate database would invalidate the
-fixed-evaluator scoring contract.
-
-### 7. Run All Eight Cases
-
-The following host-side commands compile once, run all GRT baselines, and then
-evaluate all submissions sequentially:
-
-```bash
-set -euo pipefail
-
-INPUT=/workspace/Open3DBench/input/open3dbench_8cases_post_hbt_input_20260724_r3
-VARIANT=baseline
-CASES=(
-  ariane133
-  ariane136
-  bp
-  bp_fe
-  bp_be
-  bp_multi
-  swerv_wrapper
-  bp_quad
-)
-
-./start_contest_docker.sh build 32
-
-mkdir -p runlogs
-for case_name in "${CASES[@]}"; do
-  ./start_contest_docker.sh \
-    run-grt "$case_name" "$INPUT" "$VARIANT" \
-    2>&1 | tee "runlogs/${case_name}_grt.log"
-done
-
-for case_name in "${CASES[@]}"; do
-  ./start_contest_docker.sh evaluate \
-    "$case_name" \
-    "$INPUT" \
-    "/workspace/Open3DBench/output/${case_name}/${VARIANT}" \
-    "/workspace/Open3DBench/reports/${case_name}/${VARIANT}" \
-    2>&1 | tee "runlogs/${case_name}_evaluate.log"
-done
-```
-
-`bp` is the BlackParrot case. `bp_quad` has the largest memory and runtime
-requirements and is therefore placed last.
-
-Public source, build files, and caches are stored under `.contest/`. GRT
-outputs are written below `output/`, while evaluator metrics are written below
-`reports/`. These generated directories are ignored by Git.
+Replace `bp_fe` and `baseline` to run another case or keep multiple experiment
+outputs. GRT results are stored under `output/`, and evaluation reports are
+stored under `reports/`.
 
 ## 1. Contest Description
 
