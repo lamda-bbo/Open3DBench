@@ -77,7 +77,7 @@ Open3DBench/
 
 The supplied baseline could be the starting point for contest development, which does not introduce additional Metal Layer Sharing nets.
 
-### 3.1 Die-by-die GRT baseline
+### 3.1 Restricted die-by-die GRT baseline
 
 The provided OpenROAD source adds a per-net routing-layer range to `GlobalRouter` and propagates it into FastRoute. The allowed layer range is enforced during topology generation, resource accounting, maze expansion, and route reconstruction, so a die-local net cannot move to the opposite die as a congestion fallback. HBT pins are retained as real routing terminals that can be naturally processed by the router.
 
