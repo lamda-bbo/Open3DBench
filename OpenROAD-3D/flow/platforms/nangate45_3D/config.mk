@@ -114,6 +114,8 @@ export TEMPLATE_PGA_CFG ?= $(PLATFORM_DIR)/template_pga.cfg
 
 # OpenRCX extRules
 export RCX_RULES               = $(PLATFORM_DIR)/nangate45_3D.rules
+export HBT_RESISTANCE_OHM      ?= 3.0
+export HBT_CAPACITANCE_FF      ?= 0.6
 # ---------------------------------------------------------
 #  IR Drop
 # ---------------------------------------------------------

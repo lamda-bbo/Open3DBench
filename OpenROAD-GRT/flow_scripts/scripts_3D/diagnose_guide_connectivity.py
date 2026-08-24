@@ -11,8 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from mol_hbt_common import parse_nets
-from mol_layer_share_common import SHARE_SUBNET_SUFFIXES
+from die_net_common import parse_nets
 
 GCELL_STEP = 4200
 BOTTOM_DIE_MAX_LAYER = 10
@@ -108,12 +107,8 @@ def pin_covered(x: int, y: int, rects: list[GuideRect], margin: int) -> bool:
 
 
 def is_hbt_split_net(net: str) -> bool:
-    """Return true for MoL HBT-mediated split nets."""
-    return (
-        net.endswith("_BOT")
-        or net.endswith("_TOP")
-        or net.endswith(SHARE_SUBNET_SUFFIXES)
-    )
+    """Return true for HBT-mediated split nets."""
+    return net.endswith("_BOT") or net.endswith("_TOP")
 
 
 def metal_index(layer: str) -> int | None:
@@ -302,7 +297,7 @@ def diagnose_net(
     for inst, x, y in pins:
         if not pin_covered(x, y, rects, margin):
             uncovered += 1
-            if inst.startswith("HBT_") or inst.startswith("LS_HBT_"):
+            if inst.startswith("HBT_"):
                 hbt_uncovered += 1
 
     cc = 0

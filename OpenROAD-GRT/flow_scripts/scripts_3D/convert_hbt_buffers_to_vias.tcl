@@ -1,6 +1,6 @@
 # Convert routed HBT COVER buffers into one fixed hb_layer via after DRT.
 #
-# GR phase keeps HBT_* / LS_HBT_* instances as pin targets for global routing.
+# GR phase keeps HBT_* instances as pin targets for global routing.
 # After DR, each buffer is replaced at the same location by:
 #   1) a single net containing both routed subnet dbWires and all terminals
 #   2) one FIXED hb_layer_0 via connecting metal10 to metal11
@@ -116,7 +116,7 @@ proc convert_hbt_buffers_to_vias {} {
   set hbt_insts {}
   foreach inst [$block getInsts] {
     set name [$inst getName]
-    if {[regexp {^(HBT_|LS_HBT_)} $name]} {
+    if {[string match "HBT_*" $name]} {
       lappend hbt_insts $inst
     }
   }

@@ -34,7 +34,21 @@ if {[info exist ::env(RCX_RULES)]} {
 
   # RCX section
   define_process_corner -ext_model_index 0 X
-  extract_parasitics -ext_model_file $::env(RCX_RULES)
+  set extract_args [list -ext_model_file $::env(RCX_RULES)]
+  set hbt_merge_report $::env(RESULTS_DIR)/hbt_net_merge.tsv
+  if {[info exists ::env(HBT_MERGE_REPORT)] && $::env(HBT_MERGE_REPORT) ne ""} {
+    set hbt_merge_report $::env(HBT_MERGE_REPORT)
+  }
+  if {[file exists $hbt_merge_report]} {
+    source $::env(SCRIPTS_DIR)/add_hbt_parasitics.tcl
+    prepare_hbt_parasitic_extraction
+    lappend extract_args -no_merge_via_res
+  }
+  extract_parasitics {*}$extract_args
+
+  if {[file exists $hbt_merge_report]} {
+    add_hbt_parasitics
+  }
 
   # Write Spef
   write_spef $::env(RESULTS_DIR)/6_final.spef

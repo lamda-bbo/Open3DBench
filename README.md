@@ -67,15 +67,17 @@ stored under `reports/`.
 
 ```text
 Open3DBench/
-├── OpenROAD-GRT-HBT/   # Modified OpenROAD with 3D GRT and HBT placement
+├── OpenROAD-GRT/       # Modified OpenROAD with the 3D GRT baseline
 │   ├── openroad_src/   # Source code for OpenROAD src/grt
-│   └── flow_scripts/   # GRT and HBT scripts
+│   └── flow_scripts/   # GRT and post-route HBT conversion scripts
 ├── OpenROAD-3D/        # OpenROAD-based 3D backend flow
 ├── Place-MoL/          # Memory-on-Logic placement flow
 └── Place-LoL/
 ```
 
-The supplied baseline could be the starting point for contest development, which does not introduce additional Metal Layer Sharing nets.
+The supplied baseline is a reproducible starting point for development. It
+routes the HBT locations and `_BOT`/`_TOP` subnets already present in the input
+and does not introduce additional Metal Layer Sharing nets.
 
 ### 3.1 Restricted die-by-die GRT baseline
 
@@ -84,7 +86,7 @@ The provided OpenROAD source adds a per-net routing-layer range to `GlobalRouter
 ### 3.2 Multi-pass run
 
 1. Classify the input net into bottom-die and top-die subnets.
-2. Route bottom-die subnets on `metal1-metal10` and top-die subnets on `metal11-metal20` in isolated OpenROAD processes.
+2. Route bottom-die subnets on `metal2-metal10` and top-die subnets on `metal11-metal20` in isolated OpenROAD processes.
 3. Merge the two standard guide results and import them into the final `5_1_grt.odb`.
 
 ## 4. Input and Output Files
@@ -96,7 +98,7 @@ Input package download:
 Expected archive: `open3dbench_8cases_post_hbt_input_20260724.tar.gz`
 
 SHA-256:
-`6d9884d2fb4946c9bfd15532b4aef58583a6ac877b5a510deed982683e41eddd`
+`a7e254f8f4f2b84696ba2601ea6d2e4da76d083a336ac01981f0ed6b8c196814`
 
 ```text
 open3dbench_8cases_post_hbt_input_20260724/
@@ -126,10 +128,14 @@ open3dbench_8cases_post_hbt_input_20260724/
 | `platforms/nangate45_3D/config.mk` | Platform file locations, routing-layer definitions, RC setup, and default physical-design parameters. |
 | `platforms/nangate45_3D/lef*/**.lef` | Manufacturing grid, routing and cut layers, tracks, vias, design rules, standard-cell geometry, macro geometry, and pin shapes. |
 | `platforms/nangate45_3D/lib*/**.lib` | Cell and macro timing arcs, delays, constraints, capacitance, transition, and power models. |
-| `platforms/nangate45_3D/setRC.tcl` and `rcx_patterns.rules` | Wire/via resistance-capacitance settings and extraction rules used for timing evaluation. |
+| `platforms/nangate45_3D/setRC.tcl` and `nangate45_3D.rules` | Wire/via resistance-capacitance settings and extraction rules used for timing evaluation. |
 | `platforms/nangate45_3D/fastroute.tcl`, `make_tracks.tcl`, and `grid_strategy*.tcl` | Default routing-layer adjustments, routing-track definitions, and power-grid settings. |
 | `platforms/nangate45_3D/gds/`, `cdl/`, and `drc/` | Layout geometry, transistor-level connectivity, and physical-verification rule files. |
 The input DEF provides a reproducible baseline state. Contest algorithms may change HBT placement and subnet connectivity as part of the required co-optimization, but must preserve all non-HBT component placement.
+
+The evaluator models every HBT as a 3.0 ohm series via and 0.6 fF total
+ground capacitance. The capacitance is divided equally between the metal10 and
+metal11 ends of the extracted HBT resistor.
 
 ### 4.3 Required Output
 
@@ -141,13 +147,16 @@ The input DEF provides a reproducible baseline state. Contest algorithms may cha
 ## 5. Baseline Results
 
 The following clean-machine baseline was completed on all eight public cases
-with the supplied input package, a 5.0 um HBT pitch, the 3D GRT baseline, the
+with the supplied input package, a 6.4 um HBT pitch, the 3D GRT baseline, the
 binary 3D detailed-route evaluator, 32 DRT threads, and `droute_end_iter=2`
 (initial routing plus two optimization iterations). Runtime is sequential
 wall-clock time for GRT plus the complete evaluator, including DRT, unified
 DRC, RC extraction, and final reporting, rounded to the nearest second. TNS
 and WNS are setup metrics reported by OpenSTA after extraction of the final
 routed database.
+
+The timing columns predate the explicit 3.0 ohm/0.6 fF HBT RC model and must
+be refreshed before they are used as final reference values.
 
 | Case | Runtime | HBTs | GRT-WL (um) | DRT-WL (um) | DRC | TNS (ns) | WNS (ns) |
 |---|---:|---:|---:|---:|---:|---:|---:|

@@ -559,9 +559,9 @@ library (NangateOpenCellLibrary_bottom) {
 		direction		: input;
 		related_power_pin		: "VDD";
 		related_ground_pin		: "VSS";
-		capacitance		: 0;
-		fall_capacitance	: 0;
-		rise_capacitance	: 0;
+		capacitance		: 0.600000;
+		fall_capacitance	: 0.600000;
+		rise_capacitance	: 0.600000;
 	}
 
 	pin (TOP) {
@@ -669,9 +669,9 @@ library (NangateOpenCellLibrary_bottom) {
 		direction		: input;
 		related_power_pin		: "VDD";
 		related_ground_pin		: "VSS";
-		capacitance		: 1.779209;
-		fall_capacitance	: 1.589398;
-		rise_capacitance	: 1.779209;
+		capacitance		: 0.600000;
+		fall_capacitance	: 0.600000;
+		rise_capacitance	: 0.600000;
 	}
 
 	pin (BOT) {

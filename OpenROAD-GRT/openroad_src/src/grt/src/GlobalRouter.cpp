@@ -4882,8 +4882,7 @@ bool GlobalRouter::isHbtBoundaryITerm(odb::dbITerm* iterm,
   }
 
   const char* inst_name = iterm->getInst()->getConstName();
-  const bool is_hbt_inst = std::strncmp(inst_name, "HBT_", 4) == 0
-                           || std::strncmp(inst_name, "LS_HBT_", 7) == 0;
+  const bool is_hbt_inst = std::strncmp(inst_name, "HBT_", 4) == 0;
   if (!is_hbt_inst) {
     return false;
   }

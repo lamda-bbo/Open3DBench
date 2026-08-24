@@ -302,9 +302,9 @@ END metal10
 
 LAYER hb_layer
   TYPE CUT ;
-  SPACING 4.5 ;
+  SPACING 5.9 ;
   WIDTH 0.5 ;
-  RESISTANCE 0.01 ;
+  RESISTANCE 3.0 ;
 END hb_layer
 
 LAYER metal11
@@ -1256,7 +1256,7 @@ VIARULE hb_layerArray-0 GENERATE
     ENCLOSURE 0.15 0.15 ;
   LAYER hb_layer ;
     RECT -0.25 -0.25 0.25 0.25 ;
-    SPACING 5 BY 5 ;
+    SPACING 6.4 BY 6.4 ;
 END hb_layerArray-0
 
 VIARULE Via11Array-0 GENERATE
@@ -1479,7 +1479,7 @@ SPACING
   SAMENET via7 via7 0.44 ;
   SAMENET via8 via8 0.44 ;
   SAMENET via9 via9 0.88 ;
-  SAMENET hb_layer hb_layer 1.0 ;
+  SAMENET hb_layer hb_layer 5.9 ;
   SAMENET via11 via11 0.88 ;
   SAMENET via12 via12 0.44 ;
   SAMENET via13 via13 0.44 ;

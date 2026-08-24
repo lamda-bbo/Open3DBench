@@ -29,5 +29,6 @@ exec "${docker_bin}" "${docker_args[@]}" \
   -e HOME=/workspace/Open3DBench/.contest/home \
   -e CONTEST_ROOT=/workspace/Open3DBench \
   -v "${repository}:/workspace/Open3DBench" \
+  -v "${repository}/OpenROAD-GRT:/workspace/Open3DBench/OpenROAD-GRT-HBT:ro" \
   -w /workspace/Open3DBench \
   "${image}" "${command_args[@]}"
