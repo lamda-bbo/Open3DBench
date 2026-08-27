@@ -149,22 +149,20 @@ metal11 ends of the extracted HBT resistor.
 The following clean-machine baseline was completed on all eight public cases
 with the supplied input package, a 6.4 um HBT pitch, the 3D GRT baseline, the
 binary 3D detailed-route evaluator, 32 DRT threads, and `droute_end_iter=2`
-(initial routing plus two optimization iterations). Runtime is sequential
-wall-clock time for GRT plus the complete evaluator, including DRT, unified
-DRC, RC extraction, and final reporting, rounded to the nearest second. TNS
-and WNS are setup metrics reported by OpenSTA after extraction of the final
-routed database.
+(initial routing plus two optimization iterations). TNS and WNS are setup
+metrics reported by OpenSTA after extraction of the final routed database.
 
-The timing columns predate the explicit 3.0 ohm/0.6 fF HBT RC model and must
-be refreshed before they are used as final reference values.
+Except for the refreshed `black_parrot` (`bp`) row, the timing columns predate
+the explicit 3.0 ohm/0.6 fF HBT RC model and must be refreshed before they are
+used as final reference values.
 
-| Case | Runtime | HBTs | GRT-WL (um) | DRT-WL (um) | DRC | TNS (ns) | WNS (ns) |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `ariane133` | 0:46:36 | 4,025 | 7,296,432 | 5,677,850 | 20,136 | -3,588.38 | -1.58131 |
-| `ariane136` | 0:48:33 | 4,046 | 7,318,850 | 5,667,230 | 20,498 | -733,528 | -33.9244 |
-| `black_parrot` (`bp`) | 0:54:51 | 3,847 | 9,878,607 | 7,812,700 | 23,346 | -44,016.7 | -6.23160 |
-| `bp_fe` | 0:07:58 | 1,149 | 1,660,760 | 1,378,720 | 5,618 | -2,697.30 | -1.35095 |
-| `bp_be` | 0:13:34 | 1,105 | 2,909,234 | 2,368,436 | 9,744 | -1,524.91 | -1.41043 |
-| `bp_multi` | 0:28:26 | 3,072 | 4,882,352 | 3,883,294 | 17,236 | -38,124.9 | -6.49778 |
-| `swerv_wrapper` | 0:27:00 | 1,278 | 4,608,273 | 3,723,482 | 17,065 | -651.869 | -0.829784 |
-| `bp_quad` | 4:49:47 | 27,835 | 51,423,464 | 41,690,978 | 31,078 | -547,196 | -27.9044 |
+| Case | Legality | HBTs | DRT-WL (um) | DRC | TNS (ns) | WNS (ns) |
+|---|:---:|---:|---:|---:|---:|---:|
+| `ariane133` | Pass | 4,025 | 5,677,850 | 20,136 | -3,588.38 | -1.58131 |
+| `ariane136` | Pass | 4,046 | 5,667,230 | 20,498 | -733,528 | -33.9244 |
+| `black_parrot` (`bp`) | Pass | 3,847 | 7,813,311.28 | 18,874 | -44,022.4 | -6.23185 |
+| `bp_fe` | Pass | 1,149 | 1,378,720 | 5,618 | -2,697.30 | -1.35095 |
+| `bp_be` | Pass | 1,105 | 2,368,436 | 9,744 | -1,524.91 | -1.41043 |
+| `bp_multi` | Pass | 3,072 | 3,883,294 | 17,236 | -38,124.9 | -6.49778 |
+| `swerv_wrapper` | Pass | 1,278 | 3,723,482 | 17,065 | -651.869 | -0.829784 |
+| `bp_quad` | Pass | 27,835 | 41,690,978 | 31,078 | -547,196 | -27.9044 |
