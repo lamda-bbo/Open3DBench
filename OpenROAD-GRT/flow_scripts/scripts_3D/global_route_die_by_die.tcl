@@ -121,8 +121,28 @@ proc validate_merged_guides_if_enabled {results_dir} {
 proc finalize_merged_guides {} {
   set script $::env(SCRIPTS_DIR)/../scripts_3D/finalize_die_by_die_grt.tcl
   set log_file $::env(LOG_DIR)/grt_finalize.log
+  set output_odb $::env(RESULTS_DIR)/5_1_grt.odb
+  set success_marker $::env(RESULTS_DIR)/.grt_finalize_complete
+  file delete -force $success_marker
   puts "Loading merged guides into ODB via subprocess"
-  exec [openroad_exe] -exit -no_init $script > $log_file 2>&1
+  set failed [catch {
+    exec [openroad_exe] -exit -no_init $script > $log_file 2>&1
+  } message options]
+
+  set finalized [expr {
+    [file exists $success_marker]
+    && [file exists $output_odb]
+    && [file size $output_odb] > 0
+  }]
+  if {!$finalized} {
+    if {$failed} {
+      return -options $options $message
+    }
+    error "GRT finalizer exited without publishing a complete ODB"
+  }
+  if {$failed} {
+    puts "WARN: GRT finalizer returned an error after publishing a complete ODB: $message"
+  }
 }
 
 set grt_args [expr {[info exists ::env(GLOBAL_ROUTE_ARGS)] ? $::env(GLOBAL_ROUTE_ARGS) : \

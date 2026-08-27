@@ -21,4 +21,17 @@ if {[catch {estimate_parasitics -global_routing} err]} {
 }
 
 source [file join $::env(SCRIPTS_DIR) "write_ref_sdc.tcl"]
-write_db $::env(RESULTS_DIR)/5_1_grt.odb
+
+set output_odb $::env(RESULTS_DIR)/5_1_grt.odb
+set success_marker $::env(RESULTS_DIR)/.grt_finalize_complete
+write_db $output_odb
+
+# Publish completion only after the ODB has been fully written.  The parent
+# process uses this marker to distinguish a valid child result from a real
+# finalization failure.
+set marker_tmp ${success_marker}.[pid].tmp
+set marker_fp [open $marker_tmp w]
+puts $marker_fp "odb_size=[file size $output_odb]"
+close $marker_fp
+file rename -force $marker_tmp $success_marker
+puts "Die-by-die GRT finalization complete: $output_odb"
