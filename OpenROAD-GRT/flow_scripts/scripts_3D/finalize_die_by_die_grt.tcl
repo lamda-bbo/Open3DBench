@@ -1,7 +1,10 @@
 # Load merged die-by-die guides into ODB (stock OpenROAD fallback).
 utl::set_metrics_stage "globalroute__finalize"
 source $::env(SCRIPTS_DIR)/load.tcl
-load_design 4_cts.odb 4_cts.sdc "Finalize die-by-die global routing"
+set grt_input_odb [expr {[info exists ::env(GRT_INPUT_ODB)] ? \
+  $::env(GRT_INPUT_ODB) : "4_cts.odb"}]
+puts "GRT finalizer input ODB: $grt_input_odb"
+load_design $grt_input_odb 4_cts.sdc "Finalize die-by-die global routing"
 
 set guide_file $::env(RESULTS_DIR)/route.guide
 if {![file exists $guide_file]} {

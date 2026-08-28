@@ -23,26 +23,38 @@ This is a hard per-net constraint. A restricted net cannot use the other die's m
 
 ## 2. GRT Baseline
 
-### 2.1 Net classification
+### 2.1 Optional design preparation
 
-`export_die_net_lists.py` reads `4_1_cts.def`, including component ownership, package I/O pins, and HBT pins. It writes:
+Set `GRT_PREPARE_TCL` when an algorithm changes HBT placement or net/subnet
+connectivity before routing. The script is sourced once after `4_cts.odb` is
+loaded. The flow then writes `4_grt_input.odb` and `4_grt_input.def`; net
+classification, the isolated upper pass, guide validation, and final ODB
+construction all use this shared snapshot.
+
+When `GRT_PREPARE_TCL` is unset, the baseline continues to use `4_cts.odb` and
+`4_1_cts.def` directly. No intermediate ODB is written or reloaded on this
+compatibility path.
+
+### 2.2 Net classification
+
+`export_die_net_lists.py` reads the selected GRT input DEF, including component ownership, package I/O pins, and HBT pins. It writes:
 
 - `bottom_2d.txt`: nets routed in the bottom-die pass;
 - `upper_2d.txt`: nets routed in the upper-die pass;
 
 The input represents a cross-die connection as two die-local subnets joined by an HBT instance. The HBT `BOT` and `TOP` pins remain real routing terminals.
 
-### 2.2 Isolated two-pass routing
+### 2.3 Isolated two-pass routing
 
 The baseline routes the two metal stacks separately:
 
-1. The bottom pass loads `4_cts.odb`, applies the bottom layer interval to all bottom nets, and writes `route_bottom.guide`.
+1. The bottom pass uses the selected GRT input ODB, applies the bottom layer interval to all bottom nets, and writes `route_bottom.guide`.
 2. The upper pass starts an isolated OpenROAD process, applies the upper layer interval to all upper nets, and writes `route_upper.guide`.
 3. The two standard guide files are merged into `route.guide` and loaded into `5_1_grt.odb`.
 
 Process isolation keeps the two routing-resource views independent. The layer restriction itself is enforced in the routing algorithm, rather than by clamping guide layers after routing.
 
-### 2.3 Pin access and validation
+### 2.4 Pin access and validation
 
 Boundary pin shapes may touch more than one GCell. The OpenROAD changes retain both the router-selected terminal GCell and the GCell derived from the physical pin geometry, then check that every restricted-net terminal is covered by the generated route. Postprocessing is validation-only: the flow merges raw guides, checks that 2D nets stay in their assigned metal stack, and performs a strict connectivity check. 
 
@@ -62,6 +74,7 @@ The following environment variables control the baseline. Defaults are defined i
 | `VALIDATE_DIE_GUIDES` | `1` | Set to `0` only to skip merged-guide validation. |
 | `DIE_GUIDE_MAX_CC_RECTS` | `5000` | Rectangle limit used by the strict connectivity diagnostic. |
 | `OPENROAD_EXE` | `openroad` | OpenROAD executable used for isolated upper and finalize processes. |
+| `GRT_PREPARE_TCL` | unset | Optional one-time HBT placement and netlist preparation script. |
 
 `GRT_PASS_NET_LIST`, `GRT_PASS_GUIDE_OUT`, `GRT_PASS_MIN_LAYER`, and `GRT_PASS_MAX_LAYER` are internal pass variables set by the main Tcl script; they are not normal tuning knobs.
 
@@ -126,6 +139,7 @@ contest evaluate \
 | Output | Description |
 |---|---|
 | `die_net_lists/{bottom_2d,upper_2d,special}.txt` | Net classification used by the two passes. |
+| `4_grt_input.{odb,def}` | Optional shared snapshot produced only when `GRT_PREPARE_TCL` is set. |
 | `route_bottom.guide` | Raw bottom-die guide file. |
 | `route_upper.guide` | Raw upper-die guide file. |
 | `route.guide` | Merged guide submitted to the next routing stage. |

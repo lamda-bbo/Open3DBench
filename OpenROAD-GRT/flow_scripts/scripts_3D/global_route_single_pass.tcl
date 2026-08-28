@@ -1,7 +1,10 @@
 # Route a die-local net subset in an isolated OpenROAD process.
 utl::set_metrics_stage "globalroute__pass"
 source $::env(SCRIPTS_DIR)/load.tcl
-load_design 4_cts.odb 4_cts.sdc "Single-pass die routing"
+set grt_input_odb [expr {[info exists ::env(GRT_INPUT_ODB)] ? \
+  $::env(GRT_INPUT_ODB) : "4_cts.odb"}]
+puts "GRT pass input ODB: $grt_input_odb"
+load_design $grt_input_odb 4_cts.sdc "Single-pass die routing"
 
 if {[info exist env(FASTROUTE_TCL)]} {
   source $::env(FASTROUTE_TCL)

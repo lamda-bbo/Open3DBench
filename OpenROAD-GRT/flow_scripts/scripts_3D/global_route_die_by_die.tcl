@@ -3,6 +3,31 @@ utl::set_metrics_stage "globalroute__{}"
 source $::env(SCRIPTS_DIR)/load.tcl
 load_design 4_cts.odb 4_cts.sdc "Starting die-by-die global routing"
 
+set grt_input_odb "4_cts.odb"
+set grt_input_def $::env(RESULTS_DIR)/4_1_cts.def
+
+# A preparation script may update HBT placement and net/subnet connectivity.
+# Persist those edits once so every isolated routing process sees one design.
+if {[info exists ::env(GRT_PREPARE_TCL)] && $::env(GRT_PREPARE_TCL) ne ""} {
+  set prepare_tcl [file normalize $::env(GRT_PREPARE_TCL)]
+  if {![file exists $prepare_tcl]} {
+    utl::error GRT 324 "Missing GRT preparation script $prepare_tcl"
+  }
+  puts "Running GRT design preparation: $prepare_tcl"
+  source $prepare_tcl
+
+  set grt_input_odb "4_grt_input.odb"
+  set grt_input_def $::env(RESULTS_DIR)/4_grt_input.def
+  write_db $::env(RESULTS_DIR)/$grt_input_odb
+  write_def $grt_input_def
+  puts "Prepared shared GRT input: $grt_input_odb"
+}
+
+# Tcl subprocesses inherit env(), so these paths select the same design for the
+# upper-die pass, diagnostics, and final ODB construction.
+set ::env(GRT_INPUT_ODB) $grt_input_odb
+set ::env(GRT_INPUT_DEF) $grt_input_def
+
 if {[info exist env(FASTROUTE_TCL)]} {
   source $::env(FASTROUTE_TCL)
 }
@@ -13,9 +38,8 @@ set top_min [expr {[info exists ::env(UPPER_DIE_MIN_LAYER)] ? $::env(UPPER_DIE_M
 set top_max [expr {[info exists ::env(UPPER_DIE_MAX_LAYER)] ? $::env(UPPER_DIE_MAX_LAYER) : "metal20"}]
 
 set list_dir $::env(RESULTS_DIR)/die_net_lists
-set def_file $::env(RESULTS_DIR)/4_1_cts.def
 set export_py $::env(SCRIPTS_DIR)/../scripts_3D/export_die_net_lists.py
-exec python3 $export_py $def_file $list_dir
+exec python3 $export_py $grt_input_def $list_dir
 
 proc configure_die_routing_layers {min_layer max_layer} {
   set adj 0.5
@@ -113,9 +137,12 @@ proc validate_merged_guides_if_enabled {results_dir} {
     set max_cc $::env(DIE_GUIDE_MAX_CC_RECTS)
   }
   puts "Checking raw merged guide layers without mutation"
-  exec python3 $layer_check_py $results_dir/route.guide $results_dir/4_1_cts.def
+  set input_def [expr {[info exists ::env(GRT_INPUT_DEF)] ? \
+    $::env(GRT_INPUT_DEF) : "$results_dir/4_1_cts.def"}]
+  exec python3 $layer_check_py $results_dir/route.guide $input_def
   puts "Validating merged HBT/die guides in $results_dir"
-  exec python3 $diag_py $results_dir     --strict --top 50 --max-cc-rects $max_cc
+  exec python3 $diag_py $results_dir \
+    --def-file $input_def --strict --top 50 --max-cc-rects $max_cc
 }
 
 proc finalize_merged_guides {} {

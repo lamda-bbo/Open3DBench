@@ -383,9 +383,11 @@ def run_diagnosis(
     max_cc_rects: int,
     top_k: int,
     split_only: bool = False,
+    def_path: Path | None = None,
 ) -> list[NetDiag]:
     """Run full diagnosis for one MoL results directory."""
-    def_path = results_dir / "4_1_cts.def"
+    if def_path is None:
+        def_path = results_dir / "4_1_cts.def"
     guide_path = results_dir / "route.guide"
     upper_path = results_dir / "route_upper.guide"
     log_path = resolve_grt_log_path(results_dir)
@@ -470,6 +472,11 @@ def main() -> int:
         type=Path,
         help="e.g. results/nangate45_3D/ariane133/mol_die",
     )
+    parser.add_argument(
+        "--def-file",
+        type=Path,
+        help="Prepared DEF to diagnose (defaults to results_dir/4_1_cts.def)",
+    )
     parser.add_argument("--top", type=int, default=25, help="Top candidates to show")
     parser.add_argument(
         "--max-cc-rects",
@@ -490,6 +497,7 @@ def main() -> int:
         args.max_cc_rects,
         top_k,
         split_only=args.strict,
+        def_path=args.def_file,
     )
     shown = diags[: args.top]
     print_report(str(args.results_dir), shown)

@@ -89,6 +89,21 @@ The provided OpenROAD source adds a per-net routing-layer range to `GlobalRouter
 2. Route bottom-die subnets on `metal2-metal10` and top-die subnets on `metal11-metal20` in isolated OpenROAD processes.
 3. Merge the two standard guide results and import them into the final `5_1_grt.odb`.
 
+### 3.3 HBT and subnet update interface
+
+Algorithms that change HBT placement or split additional nets set
+`GRT_PREPARE_TCL` to a Tcl script that edits the loaded OpenDB design. The
+script runs once before net classification. The flow writes the result to
+`4_grt_input.odb` and `4_grt_input.def`, and both GRT passes and the finalizer
+use that same snapshot.
+
+New HBT instances must use an `HBT_` or `LS_HBT_` name, connect exactly one
+bottom subnet through `BOT` and one top subnet through `TOP`, and use matching
+`<base>_BOT`/`<base>_TOP` subnet names. Their locations must occupy distinct
+sites on the 6.4 um HBT grid. When `GRT_PREPARE_TCL` is unset, the baseline
+continues to route the supplied `4_cts.odb` without creating an intermediate
+snapshot.
+
 ## 4. Input and Output Files
 
 Input package download:
@@ -143,6 +158,14 @@ metal11 ends of the extracted HBT resistor.
 |---|---|
 | `5_1_grt.odb` | Final OpenDB database containing component placement, optimized HBT placement, net/subnet connectivity, and global-routing guides. |
 | `route.guide` | Text representation of the global-routing guide rectangles and their routing layers. |
+
+Before DRT, the evaluator re-exports a canonical DEF and guide from
+`5_1_grt.odb`. It checks immutable non-HBT placement and package pins, logical
+netlist equivalence after collapsing HBT edges, HBT naming and grid occupancy,
+subnet die ownership, die-local guide layers, and semantic equality between
+the submitted `route.guide` and the guides stored in the ODB. The evaluator
+then regenerates the die net lists itself and ignores submission-provided net
+lists.
 
 ## 5. Baseline Results
 
