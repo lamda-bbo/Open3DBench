@@ -4,14 +4,17 @@ This directory contains the modifiable OpenROAD global-routing baseline. It is t
 
 ## 1. OpenROAD source files
 
-| File | Baseline function |
+The files below are relative to `openroad_src/`.
+
+| File | Role in global routing |
 |---|---|
-| `src/grt/include/grt/GlobalRouter.h` | Stores the per-net routing-layer range and exposes the C++ interface. |
-| `src/grt/src/GlobalRouter.cpp` | Applies net constraints, preserves physical pin-access GCells, and validates restricted-net terminals. |
-| `src/grt/src/GlobalRouter.{i,tcl}` | Exposes `set_net_routing_layers` to Tcl. |
-| `src/grt/src/Pin.h` | Carries the pin data needed by die-local routing and guide generation. |
-| `src/grt/src/fastroute/include/{DataType.h,FastRoute.h}` | Propagates each net's allowed layer interval into FastRoute data structures. |
-| `src/grt/src/fastroute/src/{FastRoute.cpp,utility.cpp}` | Enforces the interval during topology construction, resource accounting, layer assignment, maze expansion, and route reconstruction. |
+| `src/grt/include/grt/GlobalRouter.h` | Declares the top-level global router, including its configuration, routing state, guide I/O, incremental-routing, congestion, and reporting interfaces. |
+| `src/grt/src/GlobalRouter.cpp` | Implements the main GRT flow: builds the routing grid and capacities from OpenDB, creates net and pin models, invokes the routing engine, and converts the result into routing guides. |
+| `src/grt/src/GlobalRouter.{i,tcl}` | Defines the Tcl/SWIG command interface, argument checking, and user-facing wrappers for configuring and running global routing. |
+| `src/grt/src/Pin.h` | Defines the routing-terminal model, including pin geometry, routing layers, physical and on-grid locations, and attributes used to select access points. |
+| `src/grt/src/fastroute/include/DataType.h` | Defines FastRoute's core data structures for nets, grid edges, routing trees, segments, and maze routes. |
+| `src/grt/src/fastroute/include/FastRoute.h` | Declares the FastRoute routing engine and its APIs for grid construction, topology generation, congestion optimization, layer assignment, and route extraction. |
+| `src/grt/src/fastroute/src/{FastRoute.cpp,utility.cpp}` | Implements the FastRoute pipeline, including net initialization, routing-resource accounting, Steiner topology processing, congestion-driven rip-up and reroute, layer assignment, and segment generation. |
 
 The primary source-level extension is:
 
@@ -21,42 +24,7 @@ set_net_routing_layers <net_name> <min_layer> <max_layer>
 
 This is a hard per-net constraint. A restricted net cannot use the other die's metal layers as a congestion fallback.
 
-## 2. GRT Baseline
-
-### 2.1 Optional design preparation
-
-Set `GRT_PREPARE_TCL` when an algorithm changes HBT placement or net/subnet
-connectivity before routing. The script is sourced once after `4_cts.odb` is
-loaded. The flow then writes `4_grt_input.odb` and `4_grt_input.def`; net
-classification, the isolated upper pass, guide validation, and final ODB
-construction all use this shared snapshot.
-
-When `GRT_PREPARE_TCL` is unset, the baseline continues to use `4_cts.odb` and
-`4_1_cts.def` directly. No intermediate ODB is written or reloaded on this
-compatibility path.
-
-### 2.2 Net classification
-
-`export_die_net_lists.py` reads the selected GRT input DEF, including component ownership, package I/O pins, and HBT pins. It writes:
-
-- `bottom_2d.txt`: nets routed in the bottom-die pass;
-- `upper_2d.txt`: nets routed in the upper-die pass;
-
-The input represents a cross-die connection as two die-local subnets joined by an HBT instance. The HBT `BOT` and `TOP` pins remain real routing terminals.
-
-### 2.3 Isolated two-pass routing
-
-The baseline routes the two metal stacks separately:
-
-1. The bottom pass uses the selected GRT input ODB, applies the bottom layer interval to all bottom nets, and writes `route_bottom.guide`.
-2. The upper pass starts an isolated OpenROAD process, applies the upper layer interval to all upper nets, and writes `route_upper.guide`.
-3. The two standard guide files are merged into `route.guide` and loaded into `5_1_grt.odb`.
-
-Process isolation keeps the two routing-resource views independent. The layer restriction itself is enforced in the routing algorithm, rather than by clamping guide layers after routing.
-
-### 2.4 Pin access and validation
-
-Boundary pin shapes may touch more than one GCell. The OpenROAD changes retain both the router-selected terminal GCell and the GCell derived from the physical pin geometry, then check that every restricted-net terminal is covered by the generated route. Postprocessing is validation-only: the flow merges raw guides, checks that 2D nets stay in their assigned metal stack, and performs a strict connectivity check. 
+The baseline optionally runs `GRT_PREPARE_TCL` to update HBT placement or subnet connectivity, then classifies the selected input design into bottom- and upper-die net lists. It routes the two metal stacks in isolated OpenROAD processes, using `metal2-metal10` for bottom-die nets and `metal11-metal20` for upper-die nets. The two guide files are merged into `route.guide` and loaded into `5_1_grt.odb`; final checks verify layer ownership, terminal coverage, and guide connectivity without modifying the routing result.
 
 ## 3. GRT Hyperparameters
 
@@ -134,7 +102,7 @@ contest evaluate \
 | 6 | `scripts_3D/diagnose_guide_connectivity.py` | Checks strict guide and terminal connectivity. |
 | 7 | `scripts_3D/finalize_die_by_die_grt.tcl` | Reads the merged guides and writes the routed ODB. |
 
-## 6. Main Outputs
+## 6. Raw Outputs
 
 | Output | Description |
 |---|---|
@@ -144,12 +112,5 @@ contest evaluate \
 | `route_upper.guide` | Raw upper-die guide file. |
 | `route.guide` | Merged guide submitted to the next routing stage. |
 | `5_1_grt.odb` | OpenDB database containing the merged global-routing guides. |
-| `congestion_bottom.rpt` | Bottom-pass congestion report. |
+| `congestion_{bottom,upper}.rpt` | Per-die congestion reports from the bottom and upper routing passes. |
 | `grt_pass_upper.log`, `grt_finalize.log` | Isolated-pass and finalization logs. |
-
-Run the flow-script tests after changing DEF parsing or net classification:
-
-```bash
-python3 -m unittest discover \
-  OpenROAD-GRT-HBT/flow_scripts/scripts_3D/tests -v
-```

@@ -85,5 +85,11 @@ apply_layer_ranges $pass_nets $pass_min $pass_max
 set queued [add_nets_to_route_from_file $::env(GRT_PASS_NET_LIST)]
 puts "Single-pass GRT: queued $queued nets ($pass_min-$pass_max) -> $::env(GRT_PASS_GUIDE_OUT)"
 
-global_route -guide_file $::env(GRT_PASS_GUIDE_OUT) {*}$grt_args
+set congestion_report $::env(REPORTS_DIR)/congestion_upper.rpt
+set report_fp [open $congestion_report w]
+close $report_fp
+
+global_route -guide_file $::env(GRT_PASS_GUIDE_OUT) \
+  -congestion_report_file $congestion_report \
+  {*}$grt_args
 write_guides $::env(GRT_PASS_GUIDE_OUT)
