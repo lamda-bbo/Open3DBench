@@ -107,13 +107,7 @@ Input package download:
 
 Expected archive: `open3dbench_8cases_post_hbt_input_20260724.tar.gz`
 
-Current public package revision: `2026-08-31`. The Google Drive file is
-updated in place so that this download link remains stable. This revision uses
-a 6.4 um generated-via and minimum HBT center-to-center pitch, a 3.0 ohm HBT
-series resistance, and 0.6 fF total HBT capacitance.
-
-Older revisions used the same archive name. Verify the SHA-256 below before
-extracting the package.
+Current public package revision: `2026-08-31`. This revision uses a 6.4 um HBT pitch, a 3.0 ohm HBT series resistance, and 0.6 fF total HBT capacitance. Verify the SHA-256 below before extracting the package.
 
 SHA-256:
 `a7e254f8f4f2b84696ba2601ea6d2e4da76d083a336ac01981f0ed6b8c196814`
