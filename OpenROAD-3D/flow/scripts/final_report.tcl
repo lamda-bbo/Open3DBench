@@ -40,8 +40,12 @@ if {[info exist ::env(RCX_RULES)]} {
   write_spef $::env(RESULTS_DIR)/6_final.spef
   file delete $::env(DESIGN_NAME).totCap
 
-  # Read Spef for OpenSTA
-  read_spef $::env(RESULTS_DIR)/6_final.spef
+  # The v1.1 runtime cannot reliably resolve flattened/escaped SPEF names.
+  # Use temporary aliases only at the read boundary; restore canonical names
+  # before timing/power reports. Incomplete annotation is a fatal error.
+  source $::env(SCRIPTS_DIR)/read_spef_checked.tcl
+  read_spef_checked $::env(RESULTS_DIR)/6_final.spef \
+    $::env(REPORTS_DIR)/6_spef
 
   # Static IR drop analysis
   # if {[info exist ::env(PWR_NETS_VOLTAGES)]} {

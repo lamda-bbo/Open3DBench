@@ -25,6 +25,18 @@ cd OpenROAD-3D
 
 That script is the shared evaluation entry point for both LoL and MoL. It mounts `OpenROAD-3D` and `Place-LoL` separately and exports `PLACE_LOL_ROOT=/workspace/Place-LoL` inside the container, so the LoL configs can read DEFs from `Place-LoL/binaries/converted_output/...`.
 
+## v1.1 SPEF annotation correction
+
+The maintenance branch corrects final SPEF annotation in the existing evaluation
+image. `final_report.tcl` now uses a checked, reversible name adapter: original
+ODB/DEF/Verilog/SPEF names, RC values and Liberty models remain unchanged, and
+missing parasitics on a loaded net stop evaluation instead of producing timing
+metrics. This corrects an evaluator defect, not a placement optimization.
+
+See [the fix, regression results and replay instructions](docs/SPEF_ANNOTATION_FIX.md).
+The original `v1.1.0` tag and historical paper results are not rewritten; use the
+maintenance branch/commit explicitly and record it with newly evaluated results.
+
 ## Layout
 
 ```text
