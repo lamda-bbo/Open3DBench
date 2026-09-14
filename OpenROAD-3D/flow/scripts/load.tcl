@@ -32,4 +32,13 @@ proc load_design {design_file sdc_file msg} {
   } else {
     puts $msg
   }
+  # Reapply after every SDC load: some checkpoints copy the original SDC.
+  # Leave other platforms unchanged unless they opt in with MAX_FANOUT.
+  if {[info exists ::env(MAX_FANOUT)]} {
+    if {![string is integer -strict $::env(MAX_FANOUT)] || $::env(MAX_FANOUT) < 1} {
+      error "MAX_FANOUT must be a positive integer"
+    }
+    set_max_fanout $::env(MAX_FANOUT) [current_design]
+    puts "Applied design max_fanout=$::env(MAX_FANOUT)"
+  }
 }

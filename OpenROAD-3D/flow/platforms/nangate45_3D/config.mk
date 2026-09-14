@@ -19,7 +19,11 @@ export GDS_FILES = $(sort $(wildcard $(PLATFORM_DIR)/gds/*.gds)) \
                      $(ADDITIONAL_GDS)
 # Dont use cells to ease congestion
 # Specify at least one filler cell if none
-export DONT_USE_CELLS = TAPCELL_X1_upper FILLCELL_X1_upper AOI211_X1_upper OAI211_X1_upper TAPCELL_X1_bottom FILLCELL_X1_bottom AOI211_X1_bottom OAI211_X1_bottom BUF_X32_upper BUF_X16_upper BUF_X8_upper BUF_X4_upper BUF_X2_upper BUF_X1_upper CLKBUF_X1_upper CLKBUF_X2_upper CLKBUF_X3_upper
+export DONT_USE_CELLS = TAPCELL_X1_upper FILLCELL_X1_upper AOI211_X1_upper OAI211_X1_upper TAPCELL_X1_bottom FILLCELL_X1_bottom AOI211_X1_bottom OAI211_X1_bottom BUF_X32_upper BUF_X16_upper BUF_X8_upper BUF_X4_upper BUF_X2_upper BUF_X1_upper CLKBUF_X1_upper CLKBUF_X2_upper CLKBUF_X3_upper HBT_BOTIN HBT_TOPIN
+
+# HBT proxies remain available for timing, but must not be resizer buffers.
+# Apply this constraint after every design/SDC load (see scripts/load.tcl).
+export MAX_FANOUT ?= 32
 
 # Fill cells used in fill cell insertion
 export FILL_CELLS ?= FILLCELL_X1_bottom FILLCELL_X2_bottom FILLCELL_X4_bottom FILLCELL_X8_bottom FILLCELL_X16_bottom FILLCELL_X32_bottom
