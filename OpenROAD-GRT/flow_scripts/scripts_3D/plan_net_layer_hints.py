@@ -19,13 +19,28 @@ from mls_planner import tcl_word
 
 DEFAULT_CONFIG = {
     "enabled": False,
-    "min_fanout": 64,
-    "min_hpwl_um": 200.0,
+    "min_fanout": 512,
+    "min_hpwl_um": 400.0,
     "max_nets": 256,
 }
 
 
-def plan_layer_hints(manifest, config=None):
+def shared_original_nets(plan):
+    """Exclude deleted MLS originals before ranking the remaining live nets."""
+    selected = plan.get("selected")
+    if not isinstance(selected, list):
+        raise ValueError("MLS plan selected must be a list")
+    names = set()
+    for entry in selected:
+        if not isinstance(entry, dict) or not isinstance(entry.get("original"), str) or not entry["original"]:
+            raise ValueError("MLS plan selected entries require an original net name")
+        if entry["original"] in names:
+            raise ValueError("Duplicate MLS original net: " + entry["original"])
+        names.add(entry["original"])
+    return names
+
+
+def plan_layer_hints(manifest, config=None, excluded_originals=()):
     values = dict(DEFAULT_CONFIG)
     if config:
         unknown = set(config) - set(values)
@@ -51,8 +66,12 @@ def plan_layer_hints(manifest, config=None):
     if not values["enabled"] or not values["max_nets"]:
         return result
     candidates, skipped = [], Counter()
+    excluded_originals = set(excluded_originals)
     for net in manifest["nets"]:
         name, pins = net["name"], net["pins"]
+        if name in excluded_originals:
+            skipped["shared_original"] += 1
+            continue
         if net.get("special") or net.get("signal_type", "SIGNAL") != "SIGNAL":
             skipped["non_signal_or_special"] += 1
             continue
@@ -120,10 +139,12 @@ def main():
     parser.add_argument("--min-fanout", type=int, default=DEFAULT_CONFIG["min_fanout"])
     parser.add_argument("--min-hpwl-um", type=float, default=DEFAULT_CONFIG["min_hpwl_um"])
     parser.add_argument("--max-nets", type=int, default=DEFAULT_CONFIG["max_nets"])
+    parser.add_argument("--mls-plan", type=Path, help="Exclude originals replaced by this applied MLS plan")
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+    excluded = shared_original_nets(json.loads(args.mls_plan.read_text(encoding="utf-8"))) if args.mls_plan else ()
     plan = plan_layer_hints(manifest, {"enabled": args.enable, "min_fanout": args.min_fanout,
-                                    "min_hpwl_um": args.min_hpwl_um, "max_nets": args.max_nets})
+                                    "min_hpwl_um": args.min_hpwl_um, "max_nets": args.max_nets}, excluded)
     args.output_tcl.write_text(emit_layer_hints(plan), encoding="utf-8")
     args.report_json.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(plan["stats"], ensure_ascii=False))

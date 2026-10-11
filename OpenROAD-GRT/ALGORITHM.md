@@ -1,38 +1,19 @@
-# 第七版：保持布线结果的原生 Runtime 优化
+# 第八版：高扇出长线选层与运行加速
 
-本版以第六版为直接对照，布线策略和参数保持。完整八例入口耗时 1087.582 → 1012.285 秒，减少 6.92%；各例均更快，最大倍率 0.9671×。八例提交 ODB、canonical ODB/DEF/guide、MLS 计划与 HBT 记录一致。本轮没有新的 WNS 改善或全八例 DRT/STA 测量。
+本版保留第七版的 HBT 重定位、共享预算、分组及逐接收端路径保护，只为仍然存在的长、高扇出普通网增加主干选层。所有用例使用同一套输入特征规则，没有用例名或逐网白名单。默认门槛为 fanout ≥ 512、HPWL ≥ 400 μm，底 die 主干使用 metal4–10，上 die 使用 metal11–17；合法 pin access 和原 die 硬窗口仍保留。
 
-准备阶段原生批量扫描保护网，保持 net/ITerm 顺序、短路条件及 CLOCK/POWER/GROUND MTerm 判定；不缓存跨调用句柄或类型。实例快照批量返回名称、master、原点、方向和状态，原 Tcl 字典格式及逐字段修改检查保留，HBT 前缀排除规则相同。`MLS_PREPARE_SCAN=auto` 默认使用新接口，缺失时回退旧 Tcl；强制 `native` 时缺失即报错，`tcl` 可显式对照。
+新的官方容器完整 DRT2/RCX/STA 对照中，bp 的 TNS 从 -164904 改为 -162678 ns，WNS 从 -22.2297 改为 -22.3057 ns；bp_multi 的 TNS 从 -83567.5 改为 -83525.9 ns，WNS 从 -16.9927 改为 -16.651 ns。bp DRC 13784→13754，bp_multi DRC 4800→4887，HBT 数均不变。这是有局部退步的取舍，不是每例每指标均改善；最终包的输出身份、验证覆盖和完整入口耗时见 `VALIDATION.md`。
 
-`findFastRoutePins` 仍按原顺序向向量添加唯一点。超过 256 个已输出点后，局部集合加速 `(x,y,layer)` 的精确成员判断；碰撞仍用完整相等比较。原坐标范围、层夹取、首个唯一点、重复 driver 与 root 索引行为保持。小网不建立索引，调用之间不保留状态。
+试验中的更细分组以及按接收端代理收益调整叶 HBT 落点均未纳入最终规划器。后者虽然改善部分 TNS，却改变候选排序和预算分配，且使 bp_fe 的 TNS/WNS 与 bp 的 WNS 退步。保留原规划使此轮时序变化集中在选层策略。
 
-确定性网络排序直接比较 OpenDB 同一 NUL 结尾名称，避免构建两份临时字符串；原排序、时钟/非时钟分组和连接顺序不变。所有 pin access、拥塞状态、guide 回读、物理元数据恢复及 ODB 重开检查继续执行。
+运行加速不改变这一选定策略的计划与指令：
 
-新二进制已从官方完整源码构建，生产标准回归 165/165、真实数据库九状态查询验证、原生/Tcl 清单导出和八例精确产物审计通过。临时批量列表会占用内存，未宣称峰值内存降低。当前结果与边界详见提交包 `VALIDATION.md`；下面第六版内容为继承实现和历史验证说明。
+- 2D/3D 迷宫搜索通过距离地址索引找到堆位置，保持原比较和相等代价处理顺序。3D 正代价达到 BIG_INT 哨兵时，本次搜索回退原 first-match 线性查找，覆盖可能重复入堆的地址。使用网格的成员关系采用 byte 标记，原有有序遍历保留。索引增加临时内存，不宣称降低峰值内存。
+- 标准 guide 行使用 from_chars 和最近技术层缓存；非标准格式回退原流式解析。Python guide 覆盖和邻接查询共享精确空间树，使用层掩码剪枝，保持矩形索引顺序、连通分量和完整检查。合并器按完整网块写出，保留重复网与格式错误的处理规则。
+- MLS 包围盒由四次扫描合为一次，保留首值、NaN、正负零及空输入异常行为。规划进程复用已读取的原始清单，生成与独立选层 CLI 相同的 Tcl 和 JSON，减少重复解析大清单。
+- 只有本次规划返回匹配 token、MLS 应用与快照检查成功，且消费端路径匹配时，单进程路由才使用预生成选层文件；标记仅消费一次。禁用、独立进程、外部准备或缺少成功标记时保留原路径，不能凭旧文件存在就复用。
 
-## 第六版历史：结果保持的 Runtime 优化与 WNS 严格筛选
-
-本版延续第五版的低层资源预留和带路径保护的金属层共享：M2 容量削减 70%，M3 削减 60%，其他当前 die 路由层削减 50%，GRT 拥塞迭代为 1 次。共享上限仍为 192 条网、384 颗新 HBT。以下第 1–9 节保留既有算法及其历史验证边界；第六版新增运行优化见本节，当前实测范围见 VALIDATION.md。
-
-## 第六版新增运行优化
-
-Guide 检查针对矩形建立按空间包围盒划分的精确索引。小网沿用原遍历；大网先找可能相接的候选，再使用原有的同层/相邻层与坐标容差判断。处理顺序保持原矩形索引，保留并查集的合并次序、组件编号和第一个覆盖矩形的选择。完整 pin 覆盖、连通性和非法层检查仍执行；密集重叠输入仍可能出现二次复杂度，不能称为近似检查或保证所有输入都线性。
-
-MLS 规划有三处结果保持的计算优化：中位数函数自行排序，避免先重复排序；需求网格复用已计算的 pin 包围盒计算 HPWL；多分支候选在 pin 总数不足“最少 sink 数加一个 driver”时提前返回。其余驱动方向、信号类型、路径保护、落点、预算和最终计划验证均保留。该提前返回只排除不可能满足既有门槛的网，不扩大或缩小合法候选集合。
-
-离线八例规划回放已比较同一宿主 Python 下的新旧 plan 和 apply Tcl；完整官方入口另行要求提交 ODB、canonical ODB/DEF/guide、计划和 HBT 记录一致。不能把离线回放的加速倍数直接当作整个算法入口收益。不同 Python 环境历史 JSON 可能存在末位浮点格式差异，宿主离线比较与同一官方容器的逐字节门禁分开记录。
-
-本版选定的 metadata_protected_cache 通过自身全部八例精确产物审计，包含两项 Tcl 优化：STA 查询返回可能被 GRT 标记为 CLOCK 的网，缩小 signal type 快照；查询缺失、错误或读取失败则回退完整快照。层分派复用已解析的整数范围和 dbNet，通过既有 native setter 保留每网检查。其适用前提是官方 hook 不在快照后改变时钟拓扑、SDC 或其他网的 signal type；自定义 hook 必须强制全量快照或另证等价。
-
-准备阶段仍按原顺序完整扫描需检查的网和 ITerm，在本次只读扫描内按稳定 MTerm 句柄缓存 CLOCK/POWER/GROUND 判定。每个原本访问的 ITerm 仍执行 getMTerm，不同 master 的同名 terminal 不合并；原早退、异常传播、保护 JSON 字节和跨 run 缓存重置保持。该缓存只减少重复 getSigType 调用，不改变选网或放宽检查。以上两份 Tcl 与第一轮 Runtime 优化组合已通过该组合自身的全部八例完整产物审计，计划与 HBT 指标也一致。采用该组合的完整入口观测合计下降 14.90%；独立记录为 METADATA_PARITY_AUDIT.json。该组合已推广到生产，实际源码绑定的标准回归 155/155 通过；包身份审计另见包外记录。
-
-## WNS 候选与采用边界
-
-M4 候选 runtime_trunk512 沿用 v5 容量与 MLS，排除已被 MLS 替换的原网后，仅对普通高扇出长网尝试主干选层：fanout 至少 512、HPWL 至少 400 μm，其他保护与 die 硬窗口保留。规则按输入特征统一应用，不按用例名硬编码。主干下界不禁止合法的低层引脚接入。
-
-该候选已完成 bp_multi 实际固定 DRT2、RCX 和最终 STA：WNS -16.9927 → -16.6510 ns，TNS -83567.5 → -83525.9 ns，详细线长减少 266.38 μm，HBT 数不变，但最终 DRC 4800 → 4887。因此 M4 **REJECT，未采用**。不得将 WNS 改善单独写成符合本轮完整质量门槛。
-
-包外研究 runtime_trunk512_m3 只把同一候选的底层主干下界由 metal4 降到 metal3，保持其他策略与参数，未混入 metadata 优化。该独立 bp_multi 试验未覆盖 bp、bp_quad 等其他受影响用例的最终质量，未纳入本版，也不借用本版全八例精确产物证据。研究结果保存在包外 `reports/optimization_v6/wns_m3_strict_comparison.json`；本版默认仍关闭这些研究选层策略。
+原生覆盖层现为 13 份，已在官方基础源码上完整编译。原生扫描、确定性排序、两 die 路由、signal type/TRACKS 恢复和最终 ODB 重开验证均保留。阶段计时不等于完整入口时间，也不能把多个局部加速百分比相加；正式 25 分尚待服务器验证。
 
 ## 1. 既有 HBT 重定位
 
@@ -125,7 +106,7 @@ driver group -- S0 BOT -- HBT_BOTIN -- S1 TOP -- HBT_TOPIN -- S2 BOT -- sink gro
 
 入口记录 `grt_capacity_adjustment_default`、`grt_layer_adjustments_requested` 与按 die 列出的 `grt_capacity_adjustments`；最后一项仅列实际应用的逐层覆盖，未列出的层使用全局比例。较小 GRT overflow 不代表较少最终 DRC，所有容量候选必须由固定官方详细布线评测决定是否采用。
 
-准备步骤先应用全部既有 HBT 重定位，再切分共享网和创建新 HBT。底层路由始终限制在 `metal2–metal10`，上层限制在 `metal11–metal20`，并对每条网应用 `set_net_routing_layers` 硬约束。底 die 普通 pin 的合法 metal1 接入 guide 仍保留，不能将主干 M2 下界误当成 pin access 的限制。两次路由使用同一份准备后网表与布局，合并 guide 后执行层归属、pin 覆盖和连通性检查。默认 FastRoute 拥塞迭代为 1 次（初版为 2 次）；固定评估器的详细布线仍为 `-droute_end_iter 2`，没有减少评测迭代。通过 `GLOBAL_ROUTE_ARGS` 可切回 2 次全局迭代。该迭代参数沿用第二版；第五版曾对比 1/30 次 GRT 迭代，固定 DRT 参数相同；30 次迭代的候选因耗时或质量取舍未采用，实际结果见 `VALIDATION.md`。
+准备步骤先应用全部既有 HBT 重定位，再切分共享网和创建新 HBT。底层路由始终限制在 `metal2–metal10`，上层限制在 `metal11–metal20`，并对每条网应用 `set_net_routing_layers` 硬约束。底 die 普通 pin 的合法 metal1 接入 guide 仍保留，不能将主干 M2 下界误当成 pin access 的限制。两次路由使用同一份准备后网表与布局，合并 guide 后执行层归属、pin 覆盖和连通性检查。默认 FastRoute 拥塞迭代为 1 次（初版为 2 次）；固定评估器的详细布线仍为 `-droute_end_iter 2`，没有减少评测迭代。通过 `GLOBAL_ROUTE_ARGS` 可切回 2 次全局迭代。该迭代参数沿用第二版；第五版曾对比 1/30 次 GRT 迭代，固定 DRT 参数相同；30 次迭代的候选因耗时或质量取舍未采用，历史结果保存在包外 `reports/optimization_v5`。
 
 默认使用同一 OpenROAD 进程执行两次 die 局部路由。两 die 队列均非空时，`grt::reset_die_routing_pass` 只清空待路由队列，并逐网调用 OpenDB `clearGuides()` 清理暂存 guide，保留硬层约束。下一次 `global_route` 本身会清理并重建路由模型、资源网格和 GCELL，因此无须在两次路由之间重新解析整份底层 guide。此调用不会修改普通网属性、非 HBT 元件或 STA 状态。
 
@@ -139,17 +120,17 @@ driver group -- S0 BOT -- HBT_BOTIN -- S1 TOP -- HBT_TOPIN -- S2 BOT -- sink gro
 
 最终 ODB 必须为当前运行新生成的文件，并由 OpenROAD 重新打开验证。详细布线由固定评估器执行，运行时间比较使用提交入口耗时，不使用评估器包含 DRT 的墙时。内部 `grt.prepare` 包含 `mls.*` 子阶段，各项细分耗时不能直接相加。
 
-## 6. 选择性电阻感知布线
+## 6. 高扇出选层与可选电阻研究
 
-`plan_net_layer_hints.py` 从完整几何清单筛选同 die、单 OUTPUT 驱动的普通 SIGNAL 网。候选 fanout 至少 64、HPWL 至少 200 μm，按 fanout × HPWL 降序最多选择 256 条；同分按网名排序。排除 special、封装引脚、HBT、已拆分/MLS 子网和带已知时钟引脚的网，应用时再检查 MTerm 的 CLOCK/POWER/GROUND 类型以及路由器最终识别的 signal type。筛选统一使用输入特征，不依赖公开 case 名称。它是负载与长度代理，不能称为实测时序关键度。
+`plan_net_layer_hints.py` 从完整几何清单筛选同 die、单 OUTPUT 驱动的普通 SIGNAL 网。候选 fanout 至少 512、HPWL 至少 400 μm，先排除已被当前 MLS 计划替换的原网，再按 fanout × HPWL 降序最多选择 256 条；同分按网名排序。排除 special、封装引脚、HBT、已拆分/MLS 子网和带已知时钟引脚的网，应用时再检查 MTerm 的 CLOCK/POWER/GROUND 类型以及路由器最终识别的 signal type。筛选统一使用输入特征，不依赖公开 case 名称。它是负载与长度代理，不能称为实测时序关键度。
 
-单进程的 `GRT_HIGH_FANOUT_LAYERS=1` 开启选网；`GRT_HIGH_FANOUT_POLICY=resistance` 将所选网传给原生 `set_net_resistance_aware`。每次 die 路由前清除前一次集合，保持底层 metal2–10、上层 metal11–20 的完整主干硬区间。FastRoute 的层分配和适用的 3D 重布线对这些网使用已有 wire/via 电阻代价，其余网不启用该标记；保持原普通网排序和重布线阈值。不会触发原生自动 RA 的全局 slack 排名、时钟优先排序或自动扩选。路由资源竞争仍可能间接改变未选择网的 guide，因此不能承诺时钟 guide 逐字节不变。
+提交入口默认设置 `GRT_HIGH_FANOUT_LAYERS=1`，单进程默认采用下述 layers 策略；`GRT_HIGH_FANOUT_POLICY=resistance` 将所选网传给原生 `set_net_resistance_aware`。每次 die 路由前清除前一次集合，保持底层 metal2–10、上层 metal11–20 的完整主干硬区间。FastRoute 的层分配和适用的 3D 重布线对这些网使用已有 wire/via 电阻代价，其余网不启用该标记；保持原普通网排序和重布线阈值。不会触发原生自动 RA 的全局 slack 排名、时钟优先排序或自动扩选。路由资源竞争仍可能间接改变未选择网的 guide，因此不能承诺时钟 guide 逐字节不变。
 
 该代价沿用原生 LEF 的层宽、sheet resistance 和 via resistance，不是包含负载电容与完整 cell delay 的 Elmore/STA 目标。它可能增加 via 和局部拥塞，必须通过固定评估器判断。原生 3D maze 的处理范围与绕线惩罚仍在，不能保证每条所选网都接受 3D 重布线。`GRT_SELECTIVE_RA` 日志记录实际激活数，入口 manifest 的 `grt_resistance_hint_counts` 记录两 die 的应用数量。
 
-实际评测模型与这些 LEF 电阻存在重要差异。本轮官方 `6_report.log` 明确加载输入平台的 `nangate45_3D.rules`，而非同目录的 `rcx_patterns.rules`。前者的默认宽度电阻表按奇数/偶数层分别使用相同系数；例如 metal3、11、13、15 均为 0.00253571，metal2、12 为 0.0015。在本轮最终 DEF/SPEF 中，384 μm 的 metal15 主干加 0.14 μm 宽度修正后得到 974.068 Ω，与该 RCX 系数吻合；其他层也完成了同网数值交叉核对。因此，LEF 中 metal15 与 metal11 的 40 倍单位电阻差异不能用来预测本平台的最终时序收益，也不能将论文中的低阻借层收益直接迁移到本评测。该发现只用于修正优化依据，未修改平台规则或固定评估器。
+实际评测模型与这些 LEF 电阻存在重要差异。历史固定 RCX 诊断中的官方 `6_report.log` 明确加载输入平台的 `nangate45_3D.rules`，而非同目录的 `rcx_patterns.rules`。前者的默认宽度电阻表按奇数/偶数层分别使用相同系数；例如 metal3、11、13、15 均为 0.00253571，metal2、12 为 0.0015。在该历史诊断的最终 DEF/SPEF 中，384 μm 的 metal15 主干加 0.14 μm 宽度修正后得到 974.068 Ω，与该 RCX 系数吻合；其他层也完成了同网数值交叉核对。因此，LEF 中 metal15 与 metal11 的 40 倍单位电阻差异不能用来预测本平台的最终时序收益，也不能将论文中的低阻借层收益直接迁移到本评测。该发现只用于修正优化依据，未修改平台规则或固定评估器。
 
-`GRT_HIGH_FANOUT_POLICY=layers` 是另一项独立消融：所选网主干限制为底层 metal4–10、上层 metal11–17，并与原 die 窗口求交。这一固定选层策略和选择性电阻代价并不等价。`GRT_HIGH_FANOUT_LAYERS=0` 关闭两者。独立进程回退流程不应用这些新选网策略。原生 `global_route -resistance_aware` 仍为自动选网模式；同时指定自动模式与显式网集合会报错，避免无声改变实验范围。
+`GRT_HIGH_FANOUT_POLICY=layers` 是第八版默认策略：所选网主干限制为底层 metal4–10、上层 metal11–17，并与原 die 窗口求交。这一固定选层策略和选择性电阻代价并不等价。`GRT_HIGH_FANOUT_LAYERS=0` 关闭两者。独立进程回退流程不应用这些新选网策略。原生 `global_route -resistance_aware` 仍为自动选网模式；同时指定自动模式与显式网集合会报错，避免无声改变实验范围。
 
 同时修复 FastRoute 的跨 pass 技术层缓存：每次 `preProcessTechLayers()` 清空后按当前层数重建，避免底 die 的 10 层缓存留在前缀、上 die 扩展到 20 层时把 metal11 错当 metal1。关闭 RA 时旧电阻代价为零，原来的纯几何路由没有暴露这一问题。回归测试直接执行实际 C++ 函数，验证 10→20→10 层重建；新二进制关闭选网后的官方 bp_fe canonical DEF/guide 与 v3 相同。
 
@@ -165,7 +146,7 @@ driver group -- S0 BOT -- HBT_BOTIN -- S1 TOP -- HBT_TOPIN -- S2 BOT -- sink gro
 
 赛题的 [MLS 论文](https://gtcad.gatech.edu/www/papers/gtcad-tvlsi22-a.pdf) 和 [Open3DBench](https://arxiv.org/html/2503.12946v1) 提供了 F2F 金属层共享、HBT 与连接树优化的思路。本版多分支、局部直连和路径保护是结合实际服务器反例形成的实现，没有复现论文全部优化器，也不引用论文收益作为本提交收益。尤其不能将文献中的物理低阻借层优势直接等同于当前固定 RCX 模型的收益。
 
-[H3D](https://www.cse.cuhk.edu.hk/~byu/papers/C297-ICCAD2025-3DRoute.pdf) 的连续最优区域与合法 HBT 候选思想，与本项目已有凸区间/离散落点搜索相关；完整树动态规划尚未实现。[CUGR](https://cwpui.com/doc/c10.pdf) 提示应关注 via/pin access 和详细布线可行性；其局部 guide patch 未并入本版。[FastRoute](https://onlinelibrary.wiley.com/doi/10.1155/2012/608362) 的局部拥塞反馈不能等同于统一放宽容量。本轮固定 DRT 对照已经淘汰了全局放宽容量、固定 M4 下界和原生自动 RA 等退化候选。
+[H3D](https://www.cse.cuhk.edu.hk/~byu/papers/C297-ICCAD2025-3DRoute.pdf) 的连续最优区域与合法 HBT 候选思想，与本项目已有凸区间/离散落点搜索相关；完整树动态规划尚未实现。[CUGR](https://cwpui.com/doc/c10.pdf) 提示应关注 via/pin access 和详细布线可行性；其局部 guide patch 未并入本版。[FastRoute](https://onlinelibrary.wiley.com/doi/10.1155/2012/608362) 的局部拥塞反馈不能等同于统一放宽容量。历史固定 DRT 对照曾淘汰全局放宽容量、统一 M4 下界和原生自动 RA 等候选。第八版只对满足门槛的普通网采用 M4 主干下界，并明确保留实测 DRC 和 WNS 的局部取舍。
 
 ## 9. 验证与消融
 

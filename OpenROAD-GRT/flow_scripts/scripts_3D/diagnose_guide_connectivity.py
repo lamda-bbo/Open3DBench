@@ -9,6 +9,7 @@ import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from die_net_common import iter_nets
@@ -130,6 +131,7 @@ def is_hbt_split_net(net: str) -> bool:
     return net.endswith("_BOT") or net.endswith("_TOP")
 
 
+@lru_cache(maxsize=128)
 def metal_index(layer: str) -> int | None:
     """Return metalN index, or None for non-metal guide layers."""
     match = METAL_RE.match(layer)

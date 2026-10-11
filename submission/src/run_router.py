@@ -146,6 +146,7 @@ def main() -> None:
         'set submission_libs [list ' + ' '.join(tcl_quote(str(p)) for p in libs) + ']\n')
     env.setdefault('VALIDATE_DIE_GUIDES', '1')
     env.setdefault('GRT_LAYER_ADJUSTMENTS', 'metal2=0.7,metal3=0.6')
+    env.setdefault('GRT_HIGH_FANOUT_LAYERS', '1')
     # Public case configs allow overflow for the fixed detailed-route evaluator.
     env.setdefault('GLOBAL_ROUTE_ARGS', '-allow_congestion -congestion_iterations 1 -congestion_report_iter_step 5 -verbose')
     if env.get('MLS_ENABLE', '1') != '0':

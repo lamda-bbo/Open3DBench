@@ -4,6 +4,7 @@
 Set MLS_TEST_SCRIPT_DIR only when checking an isolated candidate.
 """
 import copy
+import math
 from pathlib import Path
 from statistics import StatisticsError
 import sys
@@ -27,6 +28,35 @@ def design(sinks):
 
 
 class PlannerRuntimeBoundaryTest(unittest.TestCase):
+    def test_bbox_preserves_large_integer_coordinates(self):
+        origin = 2**60
+        pins = [{'x': origin + 3, 'y': -origin},
+                {'x': origin + 1, 'y': -origin + 7}]
+        before = copy.deepcopy(pins)
+        self.assertEqual(fast.bbox(pins), (origin + 1, -origin, origin + 3, -origin + 7))
+        self.assertEqual(pins, before)
+
+    def test_empty_bbox_keeps_the_minimum_error(self):
+        with self.assertRaisesRegex(ValueError, r'^min\(\) arg is an empty sequence$'):
+            fast.bbox([])
+
+    def test_bbox_keeps_first_nan_and_ignores_later_nan_comparisons(self):
+        result = fast.bbox([{'x': float('nan'), 'y': 4},
+                           {'x': 2, 'y': float('nan')}, {'x': -1, 'y': 7}])
+        self.assertTrue(math.isnan(result[0]))
+        self.assertTrue(math.isnan(result[2]))
+        self.assertEqual((result[1], result[3]), (4, 7))
+        self.assertEqual(fast.bbox([{'x': 2, 'y': 4},
+                                   {'x': float('nan'), 'y': float('nan')},
+                                   {'x': -1, 'y': 7}]), (-1, 4, 2, 7))
+
+    def test_bbox_keeps_the_first_signed_zero_on_ties(self):
+        pins = [{'x': -0.0, 'y': 0.0}, {'x': 0.0, 'y': -0.0}]
+        for order, signs in ((pins, (-1.0, 1.0, -1.0, 1.0)),
+                             (list(reversed(pins)), (1.0, -1.0, 1.0, -1.0))):
+            with self.subTest(signs=signs):
+                self.assertEqual(tuple(math.copysign(1.0, n) for n in fast.bbox(order)), signs)
+
     def test_lower_median_ties_negative_and_large_integer_coordinates(self):
         for coordinates, expected in [([9, -4, 9, 2], (2, 2)), ([4, -9, 4], (4, 4)),
                                       ([2**55 + 5, 2**55 + 1], (2**55 + 1, 2**55 + 1))]:

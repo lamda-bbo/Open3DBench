@@ -73,7 +73,7 @@ python3 submission/support/compare_metrics.py \
 在本地 `bp_fe`、8 线程、最终迭代 2 下，每候选约 19–20 分钟：bottom 约 11 分钟，upper 约 4.5 分钟，固定 post-hook 约 3 分钟，最终 STA 约 30 秒。具体时间以实验日志为准。
 
 
-第三版真实官方 20260914 实验使用 `run_official_experiments.py`、`verify_official_experiments.py` 和 `capture_official_build_reference.py`。公开二进制只在九个 overlay 文件 SHA 全部一致时复用；增量构建必须提供已验证完整构建的父报告 SHA 和子构建的真实源码摘要。
+第三版真实官方 20260914 实验使用 `run_official_experiments.py`、`verify_official_experiments.py` 和 `capture_official_build_reference.py`。公开二进制只在非空 overlay 文件集合及其 SHA 全部一致时复用（第八版为 13 份）；增量构建必须提供已验证完整构建的父报告 SHA 和子构建的真实源码摘要。
 
 `--cases` 指定本轮 GRT 与官方合法性检查的 case；`--evaluate-cases` 指定其中进一步运行完整官方 DRT 两轮和最终 STA 的 case，默认仅 `bp_fe`。例如 `--cases bp_fe bp_multi --evaluate-cases bp_fe bp_multi` 会对两例都做完整评测；`--grt-only` 跳过全部 DRT/STA，不能同时指定 `--evaluate-cases`。旧 plan 未包含此字段时仍保留原来的 bp_fe 评测行为。每个任务的 GRT 和 DRT/STA 使用相同 `--threads`，默认 8，范围 1–32；例如 `--jobs 1 --threads 32` 可做单任务 32 线程评测。`--jobs` 上限为 4，且 `jobs × threads` 不得超过 32；启动时统一计入 `reports/optimization_v*` 下仍活跃的实验线程预算。结果会核对 GRT manifest 与底层、上层 DRT 日志中的实际线程数。
 
@@ -95,3 +95,9 @@ python3 submission/support/verify_native_prepare.py \
 ```
 
 测试临时单元通过标准 LEF 载入，并记录验证器、二进制、输入和实际产物摘要。它不更改原始 ODB 文件，也不运行布线。第七版实际全八例和最终包证据保存在包外 `reports/optimization_v7`，范围见 `VALIDATION.md`。
+
+## 第八版结果绑定
+
+第八版的固定评估覆盖与最终入口计时见 `VALIDATION.md`。运行工具不会把历史指标当作新的评估器执行。包外 `reports/optimization_v8/audit_quality.py` 校验完整 DRT2/RCX/STA、线程数、固定引擎及评估时实际平台摘要；`audit_integration.py` 校验最终源码、八例合法性和每个选定测量的实际 canonical DEF/guide/ODB、提交 ODB 与 MLS 计划身份。纯运行优化的源码差分须由固定哈希和独立输出等价证据支持。未经实际测量的案例不因此取得时序覆盖。
+
+规划与选层融合后，原独立 `grt.plan_layer_hints` 的工作可能移入 `mls.plan`。比较阶段耗时需要同时考虑两者；最终比较仍取外部完整 `run.sh` 墙时。

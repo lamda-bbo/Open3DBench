@@ -4,6 +4,7 @@
 #include "grt/GlobalRouter.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -67,6 +68,31 @@ using boost::icl::interval;
 using utl::GRT;
 
 namespace {
+
+// The router's guide writer uses exactly four decimal coordinates followed by
+// a layer name, separated by single spaces. Parse this common form without a
+// stream or temporary token strings; other forms retain the original reader.
+bool parseWrittenGuideRect(const std::string& line,
+                           int (&coordinates)[4],
+                           size_t& layer_offset)
+{
+  const char* cursor = line.data();
+  const char* end = cursor + line.size();
+  for (int& coordinate : coordinates) {
+    const auto result = std::from_chars(cursor, end, coordinate);
+    if (result.ec != std::errc{} || result.ptr == end || *result.ptr != ' ') {
+      return false;
+    }
+    cursor = result.ptr + 1;
+  }
+  if (cursor == end
+      || line.find_first_of(" \t\r\n\v\f", cursor - line.data())
+             != std::string::npos) {
+    return false;
+  }
+  layer_offset = cursor - line.data();
+  return true;
+}
 
 // Match Tcl's integer division, including pins outside the positive quadrant.
 int64_t mlsFloorDivide(int64_t value, int64_t divisor)
@@ -2801,28 +2827,36 @@ void GlobalRouter::readGuides(const char* file_name)
 
   bool skip = false;
   std::string net_name;
+  std::string last_layer_name;
+  odb::dbTechLayer* last_layer = nullptr;
   while (fin.good()) {
     getline(fin, line);
     if (line == "(" || line.empty() || line == ")") {
       continue;
     }
 
-    std::stringstream ss(line);
-    std::string word;
+    int coordinates[4];
+    size_t layer_offset = 0;
+    const bool written_rect
+        = parseWrittenGuideRect(line, coordinates, layer_offset);
     std::vector<std::string> tokens;
-    while (!ss.eof()) {
-      ss >> word;
-      tokens.push_back(word);
+    if (!written_rect) {
+      std::stringstream ss(line);
+      std::string word;
+      while (!ss.eof()) {
+        ss >> word;
+        tokens.push_back(word);
+      }
     }
 
-    if (tokens.size() == 1) {
+    if (!written_rect && tokens.size() == 1) {
       net = block_->findNet(tokens[0].c_str());
       net_name = tokens[0];
       if (!net) {
         logger_->error(GRT, 234, "Cannot find net {}.", tokens[0]);
       }
       skip = false;
-    } else if (tokens.size() == 5) {
+    } else if (written_rect || tokens.size() == 5) {
       if (skip) {
         continue;
       }
@@ -2837,13 +2871,27 @@ void GlobalRouter::readGuides(const char* file_name)
         continue;
       }
 
-      auto layer = tech->findLayer(tokens[4].c_str());
+      const char* layer_name
+          = written_rect ? line.c_str() + layer_offset : tokens[4].c_str();
+      auto layer = last_layer;
+      if (!layer || last_layer_name != layer_name) {
+        layer = tech->findLayer(layer_name);
+        last_layer = layer;
+        last_layer_name = layer_name;
+      }
       if (!layer) {
-        logger_->error(GRT, 235, "Cannot find layer {}.", tokens[4]);
+        logger_->error(GRT, 235, "Cannot find layer {}.", layer_name);
       }
 
-      odb::Rect rect(
-          stoi(tokens[0]), stoi(tokens[1]), stoi(tokens[2]), stoi(tokens[3]));
+      odb::Rect rect = written_rect
+                           ? odb::Rect(coordinates[0],
+                                       coordinates[1],
+                                       coordinates[2],
+                                       coordinates[3])
+                           : odb::Rect(stoi(tokens[0]),
+                                       stoi(tokens[1]),
+                                       stoi(tokens[2]),
+                                       stoi(tokens[3]));
       guides[net].emplace_back(layer->getRoutingLevel(), rect);
       int layer_idx = layer->getRoutingLevel();
       boxToGlobalRouting(rect, layer_idx, layer_idx, routes_[net]);

@@ -246,7 +246,7 @@ def main() -> int:
             fingerprint = overlays(source)
             if fingerprint != candidate['overlay_file_sha256']:
                 raise ValueError('Candidate overlay snapshot changed: ' + label)
-            reuse = fingerprint == reference['overlay_file_sha256'] and len(fingerprint) == 9
+            reuse = bool(fingerprint) and fingerprint == reference['overlay_file_sha256']
             record = {'status': 'prepared', 'source_zip_sha256': digest(archive),
                       'source_dir': str(source), 'overlay_file_sha256': fingerprint,
                       'config_sha256': digest(source / 'flow_scripts/scripts_3D/mls_config.json'),
@@ -255,7 +255,7 @@ def main() -> int:
             save()
             if reuse:
                 record.update(public_binary=str(binary), public_binary_sha256=reference['public_binary_sha256'],
-                              build={'status': 'reused_identical_nine_overlay_files', 'build_executed': False})
+                              build={'status': 'reused_identical_overlay_files', 'build_executed': False})
             else:
                 build_root = directory / 'fresh_build'
                 if build_root.exists(): raise ValueError('Build directory was not fresh')

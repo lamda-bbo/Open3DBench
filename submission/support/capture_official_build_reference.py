@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Register an official fresh build or verified full-build clone and nine materialized overlays."""
+"""Register an official build and every materialized source overlay."""
 from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
@@ -49,7 +49,7 @@ def main() -> int:
     with zipfile.ZipFile(archive) as source:
         overlays = {name: hashlib.sha256(source.read(name)).hexdigest() for name in sorted(source.namelist())
                     if name.startswith('openroad_overlay/') and not name.endswith('/')}
-    if len(overlays) != 9 or overlays != build['overlay_file_sha256']:
+    if not overlays or overlays != build['overlay_file_sha256']:
         raise ValueError('Build ZIP overlay hashes differ from build report')
     materialized = binary.parents[2] / 'openroad-src'
     for name, expected in overlays.items():

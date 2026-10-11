@@ -9,6 +9,28 @@ proc fused_stage {name script} {
   puts "GRT_STAGE ${name}_ms=[expr {[clock milliseconds] - $started}]"
   return $result
 }
+proc fused_plan_layer_hints {script_dir} {
+  set hints_tcl [file normalize $::env(RESULTS_DIR)/net_layer_hints.tcl]
+  set hints_report [file normalize $::env(REPORTS_DIR)/net_layer_hints.json]
+  set reused 0
+  if {[info exists ::grt_precomputed_layer_hints]} {
+    set ready $::grt_precomputed_layer_hints
+    # This marker is local to one successful preparation and is consumed once.
+    unset ::grt_precomputed_layer_hints
+    if {[catch {
+      set reused [expr {[dict get $ready token] ne "" &&
+        [dict get $ready tcl] eq $hints_tcl && [dict get $ready report] eq $hints_report &&
+        [file isfile $hints_tcl] && [file isfile $hints_report]}]
+    }]} { set reused 0 }
+  }
+  if {!$reused} {
+    puts [exec python3 $script_dir/plan_net_layer_hints.py \
+      --manifest $::env(RESULTS_DIR)/mls_manifest.json --enable \
+      --mls-plan $::env(RESULTS_DIR)/mls_plan.json \
+      --output-tcl $hints_tcl --report-json $hints_report]
+  }
+  source $hints_tcl
+}
 proc fused_snapshot_sigtypes {block} {
   # In the supplied GRT, initClockNets is the only routing operation that
   # changes a net's SigType. It uses the same native findClkNets query.
@@ -47,6 +69,7 @@ puts "GRT_STAGE load_design_ms=[expr {[clock milliseconds] - $fused_started}]"
 set fused_script_dir [file dirname [file normalize [info script]]]
 source $fused_script_dir/routing_capacity.tcl
 set fused_input_def $::env(RESULTS_DIR)/4_1_cts.def
+unset -nocomplain ::grt_precomputed_layer_hints
 if {[info exists ::env(GRT_PREPARE_TCL)] && $::env(GRT_PREPARE_TCL) ne ""} {
   fused_stage prepare {source [file normalize $::env(GRT_PREPARE_TCL)]}
   set fused_input_def $::env(RESULTS_DIR)/4_grt_input.def
@@ -68,11 +91,7 @@ set ::fused_hints_policy [expr {[info exists ::env(GRT_HIGH_FANOUT_POLICY)] ? $:
 if {$::fused_hints_policy ni {layers resistance}} { error "GRT_HIGH_FANOUT_POLICY must be layers or resistance" }
 if {$fused_hints_mode eq "1" && [file exists $::env(RESULTS_DIR)/mls_manifest.json]} {
   fused_stage plan_layer_hints {
-    set fused_hints_tcl $::env(RESULTS_DIR)/net_layer_hints.tcl
-    puts [exec python3 $fused_script_dir/plan_net_layer_hints.py \
-      --manifest $::env(RESULTS_DIR)/mls_manifest.json --enable \
-      --output-tcl $fused_hints_tcl --report-json $::env(REPORTS_DIR)/net_layer_hints.json]
-    source $fused_hints_tcl
+    fused_plan_layer_hints $fused_script_dir
   }
 }
 # Keep the pre-GRT metadata used by an isolated finalizer. make_tracks appends

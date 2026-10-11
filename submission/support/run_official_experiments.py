@@ -170,7 +170,7 @@ def main() -> int:
                         raise ValueError('Canonical gate must contain DEF/guide SHA256 pairs')
                 plan['candidates'][label] = {'original_source': str(original), 'original_source_sha256': digest(captured),
                     'source_zip_sha256': digest(snapshot), 'overlay_file_sha256': fingerprint,
-                    'reuse_verified_binary_expected': fingerprint == reference['overlay_file_sha256'] and len(fingerprint) == 9,
+                    'reuse_verified_binary_expected': bool(fingerprint) and fingerprint == reference['overlay_file_sha256'],
                     'config_sha256': digest(config), 'config_values': config_data,
                     'override_source': str(configs[label]) if label in configs else None, 'override_sha256': override_sha,
                     'baseline_mode': label in args.baseline,

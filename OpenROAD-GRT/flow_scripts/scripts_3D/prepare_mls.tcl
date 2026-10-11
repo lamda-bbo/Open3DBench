@@ -237,6 +237,7 @@ namespace eval mls_prepare {
 
   proc run {} {
     variable script_dir
+    unset -nocomplain ::grt_precomputed_layer_hints
     set db [ord::get_db]
     set block [ord::get_db_block]
     if {$block eq "NULL"} { error "MLS preparation requires a loaded design" }
@@ -300,9 +301,24 @@ namespace eval mls_prepare {
     if {[info exists ::env(MLS_TIMING_CSV)] && $::env(MLS_TIMING_CSV) ne ""} {
       lappend command --timing-csv [file normalize $::env(MLS_TIMING_CSV)]
     }
+    # Only the fused routing path consumes hints in this process. A unique
+    # token proves that this invocation wrote both files, not merely that old
+    # files happen to exist in the results directory.
+    set hint_token ""
+    if {(![info exists ::env(GRT_PROCESS_MODE)] || $::env(GRT_PROCESS_MODE) eq "single") &&
+        [info exists ::env(GRT_HIGH_FANOUT_LAYERS)] && $::env(GRT_HIGH_FANOUT_LAYERS) eq "1"} {
+      set hint_token "[pid]-[clock clicks]"
+      set hint_tcl [file normalize $::env(RESULTS_DIR)/net_layer_hints.tcl]
+      set hint_report [file normalize $::env(REPORTS_DIR)/net_layer_hints.json]
+      lappend command --layer-hints-tcl $hint_tcl --layer-hints-report $hint_report \
+        --layer-hints-token $hint_token
+    }
     puts "MLS geometry manifest: $manifest"
     set stage_start [clock milliseconds]
-    puts [exec {*}$command 2>@1]
+    set planner_output [exec {*}$command 2>@1]
+    puts $planner_output
+    set hints_ready [expr {$hint_token ne "" &&
+      [lsearch -exact [split $planner_output \n] "MLS_LAYER_HINTS_READY $hint_token"] >= 0}]
     puts "MLS_STAGE plan_ms=[expr {[clock milliseconds] - $stage_start}]"
     # Execute at global scope so the emitted script uses the usual OpenROAD
     # Tcl context, while all integration helpers remain in this namespace.
@@ -313,6 +329,9 @@ namespace eval mls_prepare {
     check_snapshot $original_instances [inst_snapshot $block] "non-HBT components"
     check_snapshot $original_bterms [bterm_snapshot $block] "package pins"
     puts "MLS_STAGE snapshot_after_ms=[expr {[clock milliseconds] - $stage_start}]"
+    if {$hints_ready} {
+      set ::grt_precomputed_layer_hints [dict create token $hint_token tcl $hint_tcl report $hint_report]
+    }
     puts "MLS preparation preserved [dict size $original_instances] components and [dict size $original_bterms] package pins; plan: $plan"
   }
 }

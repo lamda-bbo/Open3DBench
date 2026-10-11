@@ -8,10 +8,10 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from plan_net_layer_hints import emit_layer_hints, plan_layer_hints
+from plan_net_layer_hints import emit_layer_hints, plan_layer_hints, shared_original_nets
 
 
-def example(name="long_control", die="bottom", fanout=64, span=200000):
+def example(name="long_control", die="bottom", fanout=512, span=400000):
     pins = [{"inst": "driver_" + die, "pin": "Z", "x": 0, "y": 0,
              "io": "OUTPUT", "die": die, "hbt": False}]
     pins += [{"inst": "sink_" + str(i) + "_" + die, "pin": "A", "x": span,
@@ -32,7 +32,7 @@ class LayerHintTest(unittest.TestCase):
 
     def test_both_thresholds_apply_and_ranges_match_die_rc_order(self):
         nets = [example("bottom"), example("upper", "upper"),
-                example("low_fanout", fanout=63), example("short", span=199999)]
+                example("low_fanout", fanout=511), example("short", span=399999)]
         design = manifest(nets)
         before = copy.deepcopy(design)
         result = plan_layer_hints(design, {"enabled": True})
@@ -64,11 +64,34 @@ class LayerHintTest(unittest.TestCase):
             self.assertEqual(plan_layer_hints(manifest([net]), {"enabled": True})["selected"], [])
 
     def test_priority_budget_and_name_ties_are_input_order_independent(self):
-        nets = [example("z"), example("a"), example("largest", span=300000)]
+        nets = [example("z"), example("a"), example("largest", span=600000)]
         cfg = {"enabled": True, "max_nets": 2}
         first = plan_layer_hints(manifest(nets), cfg)
         self.assertEqual(first, plan_layer_hints(manifest(list(reversed(nets))), cfg))
         self.assertEqual([r["net"] for r in first["selected"]], ["largest", "a"])
+
+    def test_deleted_mls_original_cannot_consume_a_live_net_budget_slot(self):
+        nets = [example("deleted", fanout=600), example("live_z"), example("live_a")]
+        excluded = shared_original_nets({"selected": [{"original": "deleted"}]})
+        for order in (nets, list(reversed(nets))):
+            with self.subTest(order=[net["name"] for net in order]):
+                result = plan_layer_hints(manifest(order),
+                                          {"enabled": True, "max_nets": 1}, excluded)
+                self.assertEqual([row["net"] for row in result["selected"]], ["live_a"])
+                self.assertEqual(result["stats"]["candidate_nets"], 2)
+                self.assertEqual(result["stats"]["skipped"]["shared_original"], 1)
+
+    def test_applied_plan_requires_unambiguous_original_net_names(self):
+        self.assertEqual(shared_original_nets({"selected": []}), set())
+        self.assertEqual(shared_original_nets({"selected": [{"original": "literal[3]"}]}),
+                         {"literal[3]"})
+        for malformed in ({}, {"selected": None}, {"selected": {}},
+                          {"selected": [None]}, {"selected": [{}]},
+                          {"selected": [{"original": ""}]},
+                          {"selected": [{"original": 1}]},
+                          {"selected": [{"original": "same"}, {"original": "same"}]}):
+            with self.subTest(plan=malformed), self.assertRaises(ValueError):
+                shared_original_nets(malformed)
 
     @unittest.skipUnless(shutil.which("tclsh"), "Tcl is not installed")
     def test_tcl_round_trip_does_not_execute_net_names(self):

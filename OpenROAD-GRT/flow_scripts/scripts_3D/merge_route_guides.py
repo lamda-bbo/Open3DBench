@@ -87,18 +87,49 @@ def parse_guide_net_rects(guide_path: Path) -> Dict[str, List[str]]:
 
 def merge_guides(inputs: List[Path], output_path: Path) -> None:
     """Merge guide blocks; later files must not repeat net names."""
-    merged: Dict[str, List[str]] = {}
+    merged: Dict[str, str] = {}
     for guide_path in inputs:
-        blocks = parse_guide_nets(guide_path)
-        for net_name, lines in blocks.items():
+        blocks = dict(iter_guide_text_blocks(guide_path))
+        for net_name, block in blocks.items():
             if net_name in merged:
                 raise ValueError(f"Duplicate net {net_name} in merge inputs")
-            merged[net_name] = lines
+            merged[net_name] = block
 
     with output_path.open("w", encoding="utf-8") as out_file:
         for net_name in sorted(merged):
-            for line in merged[net_name]:
-                out_file.write(line + "\n")
+            out_file.write(merged[net_name])
+
+
+def iter_guide_text_blocks(guide_path: Path):
+    """Yield complete blocks, preserving the permissive legacy parser rules.
+
+    Joining a block immediately avoids retaining a Python string/list entry
+    for every rectangle and writing each rectangle separately. Duplicate nets
+    within a file still keep their last complete block through dict().
+    """
+    current_net = None
+    current_lines = []
+    with guide_path.open(encoding="utf-8") as guide_file:
+        for line in guide_file:
+            stripped = line.rstrip("\n")
+            if stripped == "":
+                continue
+            if stripped == ")":
+                if current_net is not None:
+                    current_lines.append(stripped)
+                    yield current_net, "\n".join(current_lines) + "\n"
+                    current_net = None
+                    current_lines = []
+                continue
+            if stripped == "(":
+                if current_net is not None:
+                    current_lines.append(stripped)
+                continue
+            if current_net is None:
+                current_net = stripped
+                current_lines = [stripped]
+                continue
+            current_lines.append(stripped)
 
 
 def main() -> int:

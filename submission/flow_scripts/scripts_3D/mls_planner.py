@@ -59,8 +59,30 @@ DEFAULT_CONFIG = {
 
 
 def bbox(pins):
-    return (min(p["x"] for p in pins), min(p["y"] for p in pins),
-            max(p["x"] for p in pins), max(p["y"] for p in pins))
+    # Geometry is read-only here: find all four extrema in one traversal,
+    # preserving the original first-value tie and NaN comparison behavior.
+    iterator = iter(pins)
+    try:
+        first = next(iterator)
+    except StopIteration:
+        # Use this Python version's native empty-input error text.
+        try:
+            min(())
+        except ValueError as error:
+            raise error from None
+    xl = xh = first["x"]
+    yl = yh = first["y"]
+    for pin in iterator:
+        x, y = pin["x"], pin["y"]
+        if x < xl:
+            xl = x
+        if x > xh:
+            xh = x
+        if y < yl:
+            yl = y
+        if y > yh:
+            yh = y
+    return xl, yl, xh, yh
 
 
 def hpwl(pins):
@@ -929,6 +951,25 @@ def emit_tcl(plan):
     return "\n".join(lines) + "\n"
 
 
+def precompute_layer_hints(manifest, plan, output_tcl, report_json, token):
+    """Reuse this invocation's manifest; absence of a marker requests fallback."""
+    try:
+        from plan_net_layer_hints import (
+            emit_layer_hints, plan_layer_hints, shared_original_nets,
+        )
+        hints = plan_layer_hints(manifest, {"enabled": True}, shared_original_nets(plan))
+        output_tcl.write_text(emit_layer_hints(hints), encoding="utf-8")
+        report_json.write_text(json.dumps(hints, ensure_ascii=False, indent=2) + "\n",
+                               encoding="utf-8")
+    except Exception as error:
+        # This is an optional precomputation. The Tcl caller retains its old
+        # standalone CLI path, which must still succeed before routing starts.
+        print("MLS_LAYER_HINTS_FALLBACK " + type(error).__name__)
+        return False
+    print("MLS_LAYER_HINTS_READY " + token)
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, type=Path)
@@ -938,7 +979,23 @@ def main():
     parser.add_argument("--protected-nets", type=Path)
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--apply-tcl", required=True, type=Path)
+    parser.add_argument("--layer-hints-tcl", type=Path)
+    parser.add_argument("--layer-hints-report", type=Path)
+    parser.add_argument("--layer-hints-token",
+                        help="Optional caller token printed only after both hint outputs succeed")
     args = parser.parse_args()
+    hint_options = (args.layer_hints_tcl, args.layer_hints_report, args.layer_hints_token)
+    if any(value is not None for value in hint_options):
+        if not all(value is not None for value in hint_options):
+            parser.error("layer hint output paths and token must be supplied together")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", args.layer_hints_token):
+            parser.error("layer hint token must contain only letters, digits, underscore or hyphen")
+        hint_paths = {args.layer_hints_tcl.resolve(), args.layer_hints_report.resolve()}
+        other_paths = {path.resolve() for path in
+                       (args.manifest, args.config, args.timing_csv, args.protected_nets,
+                        args.plan, args.apply_tcl) if path is not None}
+        if len(hint_paths) != 2 or hint_paths & other_paths:
+            parser.error("layer hint outputs must use separate paths")
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     if args.protected_nets:
         protected = set(json.loads(args.protected_nets.read_text(encoding="utf-8")))
@@ -956,6 +1013,9 @@ def main():
     args.plan.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     args.apply_tcl.write_text(emit_tcl(plan), encoding="utf-8")
     print(json.dumps(plan["stats"], ensure_ascii=False))
+    if args.layer_hints_token is not None:
+        precompute_layer_hints(manifest, plan, args.layer_hints_tcl,
+                               args.layer_hints_report, args.layer_hints_token)
     return 0
 
 
