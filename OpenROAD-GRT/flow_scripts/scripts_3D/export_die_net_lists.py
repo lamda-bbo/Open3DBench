@@ -8,8 +8,8 @@ import argparse
 from pathlib import Path
 
 from die_net_common import (
-    classify_net_pins,
-    iter_nets,
+    classify_net_connections,
+    iter_net_connections,
     parse_inst_die_map,
     parse_pin_die_map,
     def_sha256,
@@ -48,10 +48,10 @@ def main() -> int:
     # behavior for repeated DEF net names.
     nets: list[tuple[str, int]] = []
     classification: dict[str, str] = {}
-    for net in iter_nets(def_path):
-        nets.append((net.name, len(net.pins)))
-        classification[net.name] = classify_net_pins(
-            net.name, net.pins, inst_die_map, pin_die_map
+    for name, pins in iter_net_connections(def_path):
+        nets.append((name, len(pins)))
+        classification[name] = classify_net_connections(
+            name, pins, inst_die_map, pin_die_map
         )
     if args.classification_cache is not None:
         write_classification_cache(

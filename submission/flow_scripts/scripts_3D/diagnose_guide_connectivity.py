@@ -80,6 +80,12 @@ def parse_guides(
             if stripped in ("(", ")"):
                 if stripped == ")":
                     cur_net = None
+                    selected = False
+                continue
+            # Unselected multi-token lines cannot introduce a net unless the
+            # legacy inline-header form ends in "(". Avoid allocating a token
+            # list for every ordinary-net rectangle in strict split-net checks.
+            if not selected and (" " in stripped or "\t" in stripped) and not stripped.endswith("("):
                 continue
             parts = stripped.split()
             if len(parts) >= 5:

@@ -103,6 +103,10 @@ def main() -> None:
         parser.error("GRT_PROCESS_MODE must be 'single' or 'isolated'")
     if input_mode not in ('auto', 'def', 'odb'):
         parser.error("GRT_INPUT_MODE must be 'auto', 'def', or 'odb'")
+    export_def_mode = os.environ.get('SUBMISSION_EXPORT_DEF', '0')
+    if export_def_mode not in ('0', '1'):
+        parser.error("SUBMISSION_EXPORT_DEF must be '0' or '1'")
+    export_def = export_def_mode == '1'
     if input_mode == 'auto':
         input_mode = 'def' if process_mode == 'single' else 'odb'
     if process_mode == 'isolated' and input_mode == 'def':
@@ -198,13 +202,21 @@ def main() -> None:
         raise RuntimeError(f'Routing did not publish complete output; inspect {logs}')
     # Re-open the freshly written ODB with the same executable before publishing.
     verify = work / 'verify.tcl'
-    verify.write_text(f'read_db {tcl_quote(str(odb))}\nwrite_def {tcl_quote(str(results / "submission.def"))}\nputs "SUBMISSION_ODB_READABLE"\n')
+    verify_commands = [f'read_db {tcl_quote(str(odb))}']
+    if export_def:
+        verify_commands.append(f'write_def {tcl_quote(str(results / "submission.def"))}')
+    verify_commands.append('puts "SUBMISSION_ODB_READABLE"')
+    verify.write_text('\n'.join(verify_commands) + '\n')
     stage_seconds['verify_odb'] = run_openroad(exe, verify, env, logs / 'verify.log')
     if 'SUBMISSION_ODB_READABLE' not in (logs / 'verify.log').read_text():
         raise RuntimeError('Fresh ODB failed reopen verification')
-    atomic_copy(odb, output / '5_1_grt.odb')
+    odb_bytes = odb.stat().st_size
+    # Work files live inside output, so rename publishes the verified ODB
+    # atomically without copying the entire database on the same filesystem.
+    odb.replace(output / '5_1_grt.odb')
     atomic_copy(guide, output / 'route.guide')
-    atomic_copy(results / 'submission.def', output / 'submission.def')
+    if export_def:
+        atomic_copy(results / 'submission.def', output / 'submission.def')
     for plan in results.glob('mls*.json'):
         atomic_copy(plan, output / plan.name)
     shutil.copytree(results / 'die_net_lists', output / 'die_net_lists', dirs_exist_ok=True)
@@ -224,10 +236,11 @@ def main() -> None:
         'grt_layer_adjustments_requested': env.get('GRT_LAYER_ADJUSTMENTS', ''),
         'global_route_args': env['GLOBAL_ROUTE_ARGS'],
         'grt_process_mode': process_mode, 'grt_input_mode': input_mode,
-        'odb_bytes': odb.stat().st_size, 'work_dir': str(work),
+        'submission_export_def': export_def,
+        'odb_bytes': odb_bytes, 'work_dir': str(work),
     }
     (output / 'run_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-    print(f'完成: {output / "5_1_grt.odb"} ({odb.stat().st_size} bytes)', flush=True)
+    print(f'完成: {output / "5_1_grt.odb"} ({odb_bytes} bytes)', flush=True)
 
 
 if __name__ == '__main__':

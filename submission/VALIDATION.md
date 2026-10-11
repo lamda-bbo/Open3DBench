@@ -1,19 +1,93 @@
-# 第八版验证记录
+# 第十一版验证记录
 
-本版最终策略为原第七版 MLS 规划加长、高扇出普通网选层，组合精确运行加速。已完成最终源码的八例 GRT/官方合法性检查，以及 bp、bp_multi 的完整时序对照与产物身份绑定。**尚未获得第八版官方提交成绩，不能确认达到 25 分。**
+本版保留 v8 物理策略，只优化六个 Python 运行文件。13 份原生覆盖层与 v8 相同。本次保存的官方打榜记录为 **22.536600893681708 分（约 22.54）**；v11 尚无新的官方成绩，**不能确认达到 25 分**。
 
-## 环境与源码身份
+## 已知官方结果与服务器失败
 
-- 官方镜像：`gaocr/3dbench-contest:20260914`，实际 ID `sha256:eb877c5e1f4d94881992b55d474ab189ab3308dac3f38208c5c8b0dd7544bd98`。
-- 官方基础源码 commit：`305d3ba2ddfd00591924cc586ad408179f566afe`；本版 13 份覆盖层已完整构建，二进制 SHA256 为 `c8f664f33bb87b6174de743b155032e6edd278c0cd615374d4552b4de79c9e44`。
-- 最终路由冻结源码 ZIP SHA256：`4f0082b1113bef5a31f4bfefe86de60b4526bb76076f10366415ffba60796f94`。发布包更新了说明及支持工具，运行文件须与该冻结版本相同；发布包本身的摘要保存在包外审计，避免文档自引用哈希。
-- 最终路由：32 线程、jobs=1，复用与 13 份覆盖层完全匹配的已验证二进制。固定评估器、输入、SDC、平台及 RCX 均未修改。
+证据为仓库 `result/scoring_result-4/scores.json`、`detailed_scores.json` 和 `result/prediction_result-4/ingestion_results.json`。本次记录成功 5/8：bp_fe、bp_be、bp、bp_multi、swerv_wrapper。保存指标为运行时间合计 162.138508 秒、平均 TNS -52247.738 ns、平均 WNS -9.525286 ns。
 
-## TNS、WNS 与质量取舍
+运行时间来自五个成功用例的 `algorithm_runtime` 之和，不包含固定评估器 DRT 时间。TNS/WNS 为这些成功用例的均值；不能将成功率用于反推八例分数。报告公开了权重，但未给出完整服务器归一化和失败用例处理规则，不能把节省秒数或局部百分比直接换算成达到 25 分所需的分数。
 
-以下是同镜像、同输入/完整平台摘要、同固定引擎、每次 12 线程的实际两轮 DRT、RCX 和最终 STA。两层日志均确认 `droute_end_iter=2`。基线重新测得的 bp/bp_multi 结果与保存的第七版官方指标一致。
+ariane133、ariane136、bp_quad 仍记录 `Input DEF file not found`。缺少服务器尝试路径、完整调用和日志，根因未证实，v11 未改输入发现逻辑。本地完整输入上的合法性或八例通过，均不等于已经修复这三个服务器问题。
 
-| 用例 | 指标 | 第七版 | 第八版选定策略 |
+## 源码、镜像与二进制身份
+
+- 官方镜像 `gaocr/3dbench-contest:20260914`，ID `sha256:eb877c5e1f4d94881992b55d474ab189ab3308dac3f38208c5c8b0dd7544bd98`。
+- 基础源码 commit `305d3ba2ddfd00591924cc586ad408179f566afe`；复用的已验证 v8 二进制 SHA256 `c8f664f33bb87b6174de743b155032e6edd278c0cd615374d4552b4de79c9e44`。验证同时绑定原生 13 文件、构建脚本、fresh-build 证明和原始构建 ZIP。
+- 本轮对照基线 `submission_v8.zip` SHA256 `d976df3ba142e4316c58c3d147ecf67800ac85edcc45a7305bf96e36fee347de`。
+- 冻结运行候选 `reports/optimization_v11/final_runtime_candidate.zip` SHA256 `e76665731f27efb67e05a1488b57a95759ad7515921c1bf6c3da904e6fdf0ddf`。此摘要对应评测候选，后续说明文档和支持工具更新后的发布包摘要须另行审计。
+- 六份改动为 `src/run_router.py` 以及 `flow_scripts/scripts_3D/{die_net_common,export_die_net_lists,diagnose_guide_connectivity,hbt_optimizer,mls_planner}.py`。原生覆盖层逐文件不变；不得据此宣称所有包文件均未变，冻结候选还未携带一份支持工具测试文件。
+
+## 已完成的回归与局部对照
+
+生产回归 **191 项通过**，支持工具回归 **7 项通过**；另有 **5 项**对固定 `production_before_v11` 源码的运行边界对照通过。证据分别为 `FINAL_PRODUCTION_TESTS.log`、`FINAL_SUPPORT_TESTS.log`、`FINAL_RUNTIME_BOUNDARY_TESTS.log`，位于仓库 `reports/optimization_v11`。固定旧源码对照避免新实现与自身比较。
+
+已有官方 Python 3.12.3 下 bp、bp_multi、bp_quad 的规划器对照：计划 JSON、apply Tcl、选层 Tcl/JSON 四产物逐字节一致。bp、bp_multi 的计划还与本次上传保存的计划一致；bp_quad 与保留的 v8 历史计划一致。HBT 剪枝仅对可证明无收益的整数几何启用，有实际路径 guard 时保留完整候选搜索和拒绝计数；非整数几何保留原搜索。间距判定、网格裁剪顺序和候选排序保持原语义。
+
+| 单独规划器 CLI | v8 / s | v11 / s | 本阶段减少 |
+|---|---:|---:|---:|
+| bp | 13.564 | 12.269 | 9.54% |
+| bp_multi | 6.561 | 5.674 | 13.52% |
+| bp_quad | 55.081 | 45.214 | 17.91% |
+
+这些是官方 Python 3.12.3 下的局部重放，四份输出逐字节相同。每版本每例测量一次；不能据此推算完整入口或服务器分数。证据为 `planner_validation/container/REPLAY.json` 和 `bp_quad_planner_replay/REPLAY.json`。
+
+入口 fixture 对照覆盖新 ODB 独立重开、缺失/空产物、失败标记、导出失败、原子重命名失败及后续复制失败传播。默认 `SUBMISSION_EXPORT_DEF=0` 时最终 DEF 缺席；值为 `1` 时从独立重开的最终 ODB 导出。无效值失败。文件原子重命名保留新 ODB 字节，但不构成全部输出的原子事务，消费者须服从入口退出状态。
+
+早期仅运行四文件候选的 FE 官方 smoke 已合法且 ODB 可读，不能用它替代最终六文件候选的八例验证。独立审核见 `FINAL_CANDIDATE_REVIEW.json`；局部规划、分类、连通性测量见 `planner_validation` 和 `RUNTIME_CANDIDATE_EVIDENCE.json`，这些测量不能当作完整入口收益。
+
+## 八例合法性与产物身份
+
+最终六文件候选已与 v8 完成下列八例完整入口、独立数据库重开及官方合法性对照。第一轮 `runtime_all8_functional/runtime_report.json` 的整体状态仍为 **FAIL**：前七例已完成，bp_quad 候选 GRT 返回 -11，未保留充分内部诊断，不能确定原因。随后用同一冻结候选 ZIP、镜像、输入和已验证二进制进行 bp_quad 完整重试，两版均合法且产物一致；`runtime_quad_retry/runtime_report.json` 为 **PASS**。合并结论只采用各例已完成的对照，不改写第一轮失败记录。
+
+| 用例 | v11 GRT / 官方合法性 | v8→v11 物理与 canonical 文件身份 |
+|---|---|---|
+| bp_fe | PASS | 相同 |
+| bp_be | PASS | 相同 |
+| bp | PASS | 相同 |
+| bp_multi | PASS | 相同 |
+| swerv_wrapper | PASS | 相同 |
+| ariane133 | PASS | 相同 |
+| ariane136 | PASS | 相同 |
+| bp_quad（完整重试） | PASS | 相同 |
+
+验证要求提交 ODB、源 guide、计划 JSON、apply Tcl、MLS 清单及 die lists 的 SHA 一致，并比较官方从 ODB 重建的 canonical DEF/guide/ODB 与 canonical die lists。官方校验前后 canonical 三文件 SHA 必须不变，源 ODB 与输入也必须不变。运行使用固定镜像、输入、完整平台和已验证二进制，按 case 顺序交替 baseline/candidate。
+
+上述对照均使用共享宿主、8 线程；首轮与已记录的 24 线程后台任务共存，重试与 12 线程 BP 时序实验共存，总预约不超过 32。报告 `runtime_scope=shared_host_functional_identity_only`，不计算入口速度比例或减少百分比。首轮因失败未完成整轮结束门槛，重试额外完成源码前后身份核对；两轮所需输入、完整平台、冻结源码和保留产物还由最终整合审计独立重哈希。
+
+重试同时完成 `SUBMISSION_EXPORT_DEF=1` 的 FE smoke：官方合法，source/canonical/物理计划与第一轮默认不导出 DEF 的 FE 候选相同。默认候选没有最终 DEF 导出指令，独立 `read_db` 检查仍执行；显式开关通过最终 ODB 导出，未使用准备阶段 DEF 替代。
+
+## 完整入口运行时间的验证范围
+
+本轮未获得干净独占宿主、32 线程的完整入口计时。完整入口对照使用 8 线程，并与已记录的时序实验共享宿主；只用于验证产物和合法性，不报告速度收益。完整外部 `bash run.sh` 的原始墙时保留在运行报告中，构建、官方 snapshot/validator、哈希、归档和 DRT/RCX/STA 不计入该墙时。
+
+reserve75 BP 失败后的两个临时文件读取进程处于内核存储等待，一次有界停止请求超时，未确认容器退出。它们不再运行 EDA，也不占用布线线程预约，但不能据此把宿主标为干净。证据为 `reserve75_bp_quality/20261011T074951Z-52606e8a/BLOCKED_RETENTION.json`；该失败实验的完整 RAM 归档未完成，小日志和已保存的审计仍保留。独占计时启动器会拒绝这个未解除的状态。
+
+使用 `/scratch` tmpfs 缓解本地磁盘容量限制，TMPFS 的绝对墙时不能直接预测服务器文件系统。内部 `grt.prepare` 包含 `mls.*`，并行检查子项重叠；局部优化百分比不能相加，历史 v7→v8 完整入口减少 4.13% 也不是本轮 v8→v11 收益。
+
+## 本轮质量研究：尚未采用
+
+reserve75 FE 的 TNS 变差，WNS/DRC 改善；零额外拥塞迭代 FE 候选的 TNS/DRC 变差，WNS 改善，未纳入本版默认策略。后者实验标签为 `zero_overflow`，实际设置 `-congestion_iterations 0`，不表示物理 overflow 为零。reserve75 BP 的 GRT 返回 -11，未进入 DRT/STA。
+
+budget512 BP 的官方实验记录已完成：12 线程、两轮固定详细布线、RCX 和最终 STA，评估器返回 0。保存指标如下；它们来自完整评估记录，而非中途 STA：
+
+| 指标 | budget512 BP 已记录值 |
+|---|---:|
+| TNS / ns | -157898 |
+| WNS / ns | -22.1521 |
+| DRC | 13379 |
+| 详细线长 / μm | 7919728.98 |
+| HBT | 4359 |
+
+完成后的留存 driver 返回 139，RAM 容器退出并自动删除，最终 archive 和 receipt 缺失；严格独立质量审计为 **INCOMPLETE**。记录中的 SHA 不能替代读取、重哈希缺失的最终 physical/STA/platform 产物。证据为 `budget512_bp_quality/20261011T074618Z-835d97cd/experiment.json`、`host_experiment.json` 和 `timing_candidate/BUDGET512_BP_QUALITY_AUDIT.json`；后者标明 `INCOMPLETE_INDEPENDENT_QUALITY_AUDIT_RETENTION_FAILED`。同为 12 线程的历史 v8 BP 基线已独立审计，但新候选最终归档尚未独立验证，其他用例也没有完整质量覆盖。
+
+保存数值相较 v8 BP 显示 TNS/WNS/DRC 改善、详细线长和 HBT 增加，但不能据此把 budget512 宣称为已验证质量升级。本版不采用该候选，主推荐包维持 v8 的 `max_new_hbts=384` 与已验证六文件运行优化。容量模型中的 GRT overflow 减少不能代替最终 DRC、RCX、TNS/WNS；本次 BP 评估也不产生新的官方八例分数或公平入口计时。相应隔离实验位于 `reserve75_fe_quality`、`zero_fe_quality_retry`、`budget512_bp_quality`、`reserve75_bp_quality`。
+
+## 沿用的 v8 时序证据
+
+以下是既有 v7→v8 质量测量，不是 v11 新跑 STA：相同官方镜像、输入与完整平台、固定引擎、12 线程，两轮 DRT 后完成 RCX 和最终 STA。最终 v8 的严格产物身份绑定见仓库 `reports/optimization_v8/FINAL_INTEGRATION_AUDIT.json`。
+
+| 用例 | 指标 | v7 | v8 策略 |
 |---|---|---:|---:|
 | bp | TNS / ns | -164904 | -162678 |
 | bp | WNS / ns | -22.2297 | -22.3057 |
@@ -26,56 +100,12 @@
 | bp_multi | 详细线长 / μm | 3892767.95 | 3892501.57 |
 | bp_multi | HBT | 3456 | 3456 |
 
-bp 的 TNS 负 slack 损失减少 1.35%，但 WNS 损失增加 0.34%；bp_multi 的 TNS 损失减少 0.05%、WNS 损失减少 2.01%，但 DRC 增加 1.81%。两例超免费额度 HBT 均为 0。收益有限，不能表述为所有时序或物理指标均改善。
+bp TNS 损失减少 1.35%，WNS 损失增加 0.34%；bp_multi TNS 损失减少 0.05%、WNS 损失减少 2.01%，DRC 增加 1.81%。HBT 数不变，两例超免费额度 HBT 为 0。完整历史策略、拒绝候选、RC 模型边界和测量范围保留在 [ALGORITHM.md](ALGORITHM.md) 后文及 v8 包外证据。
 
-完整质量测量使用原规划器和独立选层流程；最终包改用等价的包围盒计算与融合选层流程，并采用新的 13 覆盖层二进制。独立审核固定了源码差分哈希，官方 Python 3.12 下八例的计划 JSON、apply Tcl、选层 Tcl/JSON 逐字节一致。最终 bp/bp_multi 的实际 MLS 计划、canonical DEF/guide/ODB 和提交 ODB 必须与该质量测量逐字节一致，才绑定上述指标。这不是宣称最终 ZIP 又重跑了一遍 STA，也不把其他用例标为已完成新时序测量。
-
-本轮未完成 bp_quad 的完整新 DRT/STA；其选层会改变布线，最终时序仍有不确定性。几何代理、空选层或合法性通过均不能替代相应时序覆盖。
-
-## 完整入口耗时
-
-以下五例分别比较同 32 线程、jobs=1 的完整外部 `run.sh` 墙时，每版每例一次。基线与候选的输入、平台和固定引擎一致，启动预约没有其他活动实验；这不证明宿主不存在任何未登记负载。构建、局部 CLI、采样器和固定 DRT 时间均不计入。
-
-| 用例 | 第七版 / s | 第八版 / s | 减少 |
-|---|---:|---:|---:|
-| bp_fe | 19.231 | 18.735 | 2.58% |
-| bp_be | 29.578 | 28.592 | 3.33% |
-| bp | 136.479 | 130.143 | 4.64% |
-| bp_multi | 56.825 | 54.322 | 4.40% |
-| swerv_wrapper | 44.402 | 42.883 | 3.42% |
-| 合计 | 286.515 | 274.675 | 4.13% |
-
-合计减少 11.840 秒（4.13%），不承诺其他机器获得同幅收益。其他三例没有本轮同条件入口对照；五例全部计时和合法性完成后才进行磁盘去重，随后三个用例的耗时不用于此比较。原生运行优化单独测得的 4.38% 和规划阶段的约 25% 不能与这里的完整入口收益相加。
-
-## 八例合法性与回归
-
-| 用例 | 最终 GRT / 官方合法性 | 实际应用选层网数 |
-|---|---|---:|
-| bp_fe | PASS | 0 |
-| bp_be | PASS | 0 |
-| bp | PASS | 59 |
-| bp_multi | PASS | 14 |
-| swerv_wrapper | PASS | 0 |
-| ariane133 | PASS | 0 |
-| ariane136 | PASS | 0 |
-| bp_quad | PASS | 18 |
-
-八例执行完整 guide 层归属、pin 覆盖、连通性检查与最终 ODB 重开。新规划未改变原共享预算和 HBT 布局策略。没有按 case 名称选择不同算法。
-
-生产回归 **191 项通过**，支持工具 **7 项通过**；另有官方 Python 3.12 下 87 项针对性测试与八例四产物对照，属于交叉验证，不与生产测试简单累加。新增检查覆盖 bbox 的 NaN/正负零/空输入、MLS 原网排除先于排序预算、融合成功标记、旧文件、禁用/独立进程/外部准备回退及失败传播。原生解析和堆/网格差分验证通过 AddressSanitizer/UndefinedBehaviorSanitizer；没有宣称完成 LeakSanitizer 或降低峰值内存。
-
-更细分组在 bp_multi 上同时恶化 TNS/WNS，未采用。新的叶 HBT 落点策略虽然改善部分 TNS，却改变排序与资源分配，使 bp_fe 的 TNS/WNS 和 bp 的 WNS 退步，最终也未采用。拒绝候选的产物已经逐文件解压校验后无损归档，源代码、日志与质量证据保留。
+v11 只有在实际提交/物理计划/canonical 输出与 v8 严格相同时才能继承该质量输入身份；合法性通过本身不构成时序改善证据。既有 v8 未完成 bp_quad 的完整新 DRT/STA，本轮也不将其标为有新增时序覆盖。
 
 ## 包外证据
 
-以下目录均相对于仓库 `reports/optimization_v8`，不随源码 ZIP 携带大型实验数据：
+仓库 `reports/optimization_v11` 保留 `FINAL_RUNTIME_SOURCE.json`、`FINAL_CANDIDATE_REVIEW.json`、三份最终测试日志、`planner_validation/container/REPLAY.json`、`RAM_RUNNER_RELEASE.json` 和实际验证报告。源码 ZIP 不携带大型实验产物。
 
-- `FINAL_INTEGRATION_AUDIT.json`：最终源码、源码包、13 覆盖层构建、八例合法性和两个时序测量的严格产物绑定。
-- `FINAL_RUNTIME_AUDIT.json`：上述五例完整入口、线程、输入与预约记录对照。
-- `TRUNK512_BP_QUALITY_AUDIT.json`、`TRUNK512_MULTI_QUALITY_AUDIT.json`：完整固定评估测量及逐项退步/改善。
-- `fused_hint_validation/independent_review.json` 与 `independent_binding_result.json`：固定源码差分、官方八例四产物及测试证据。
-- `native_final_validation/binary_reference.json`：完整构建、原生/Tcl 清单及边界 fixture 对照；`RUNTIME_PARITY_AUDIT.json` 验证纯运行优化八例与 v7 的结果一致。
-- `FINAL_PRODUCTION_TESTS.log`、`FINAL_SUPPORT_TESTS.log`：实际生产及工具回归。
-- `final_trunk_all8_experiments/20261008T012342Z-6ba654e4`：最终版本实际运行快照；固定质量测量分别见 `trunk512_bp_experiments/20261007T155351Z-cec87dca` 和 `trunk512_multi_experiments/20261007T055040Z-6a5b4b20`。
-
-用户本次报告的官方成绩约 20.6 分；本地保存的 `result/scoring_result-3` 则记录 21.6456 分及 5/8 成功，两者不能混作同一次测量。保存结果中三个 `Input DEF file not found` 的服务器错误缺少尝试路径和完整日志，其根因仍未证实；本地八例通过不等于已修复服务器输入问题。
+八例合并对照和显式 DEF 导出 FE smoke 已完成，中间整合审计 `FINAL_INTEGRATION_AUDIT.intermediate.json` 对运行来源、实际保留文件、三例规划重放、最终回归及原始评分均通过；它的发布包组因当时根目录 ZIP 尚为旧版而失败，文档组显式跳过，不能把中间审核标为完成。最终发布包身份与说明核验以 `reports/optimization_v11/FINAL_INTEGRATION_AUDIT.json` 的 `status`/`final` 为准。本轮没有干净独占计时收益；新的服务器成绩尚未取得，不能以本地对照替代。

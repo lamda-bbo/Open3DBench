@@ -1,5 +1,10 @@
 # OpenROAD 3D GRT Baseline
 
+The v11 submission keeps the v8 routing policy and all 13 native overlay files, and optimizes Python planning, classification, guide diagnostics and final ODB publication. See [submission instructions](../submission/README.md), [validation scope](../submission/VALIDATION.md) and [algorithm details](ALGORITHM.md).
+
+The budget512 BP evaluator record is complete, with TNS -157898 ns, WNS -22.1521 ns, DRC 13379, detailed wirelength 7919728.98 μm and HBT count 4359. Its subsequent retention driver exited 139; the RAM container was removed and the final archive/receipt are missing, so the independent quality audit is **INCOMPLETE**. The recommended package retains v8's `max_new_hbts=384` and the six validated runtime changes. Budget512 is not adopted; reserve75 BP failed during GRT with -11 before DRT/STA. These records do not establish a new official score or a complete-entry runtime gain. Final release-package identity and documentation verification are governed by `reports/optimization_v11/FINAL_INTEGRATION_AUDIT.json`'s `status`/`final` fields.
+
+
 This directory contains the modifiable OpenROAD global-routing baseline. It is the main development area for changing the 3D GRT algorithm and developing the metal layer sharing policy. 
 
 ## 1. OpenROAD source files

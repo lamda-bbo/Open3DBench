@@ -278,6 +278,28 @@ def optimize_hbts(manifest, config=None):
                 return total
 
             old_cost = objective(current)
+            # Each incident net must span both its fixed-pin box and the
+            # moving HBT's pin-offset box. If the current integer geometry
+            # already attains their summed lower bound, no lattice point can
+            # improve HPWL; current also wins every equal-cost relocation tie.
+            # Keep the full search for path guards (their rejection statistics
+            # are observable) and noninteger geometry (rounding can differ).
+            if not guarded_paths.get(name):
+                if (xl <= current[0] <= xh and yl <= current[1] <= yh
+                        and isinstance(current[0], int) and isinstance(current[1], int)
+                        and all(offsets == (0, 0, 0, 0) for _box, offsets in groups)
+                        and all(isinstance(value, int) for box, _offsets in groups for value in box)):
+                    # Zero-offset HBT pins reduce the exact objective to the
+                    # sum of distances from fixed-pin intervals. Its convex
+                    # minimizers are precisely the two median intervals above.
+                    continue
+                if (any(offsets != (0, 0, 0, 0) for _box, offsets in groups)
+                        and all(isinstance(value, int) for box, offsets in groups
+                                for value in (*box, *offsets))
+                        and old_cost == sum(max(box[2] - box[0], offsets[2] - offsets[0])
+                                            + max(box[3] - box[1], offsets[3] - offsets[1])
+                                            for box, offsets in groups)):
+                    continue
             best_point, best_cost = current, old_cost
             for point in lattice.candidates(current, (xl, yl, xh, yh), values["search_radius"]):
                 if point in lattice.occupied and lattice.occupied[point] != name:

@@ -248,19 +248,19 @@ def parse_pin_die_map(def_path: Path) -> dict[str, str]:
     return pin_die_map
 
 
-def iter_nets(
+def iter_net_connections(
     def_path: Path,
     *,
     net_name_filter: Callable[[str], bool] | None = None,
-) -> Iterator[NetRecord]:
-    """Yield DEF nets, allocating pin references only for selected net names.
+) -> Iterator[tuple[str, tuple[tuple[str, str], ...]]]:
+    """Yield raw DEF connections without allocating a dataclass per pin.
 
     Filtering selects entire nets: every connection of a selected net is kept
     in DEF order, including ordinary instance and package pins.
     """
     in_nets = False
     current_name: str | None = None
-    current_pins: list[PinRef] = []
+    current_pins: list[tuple[str, str]] = []
     selected = False
 
     with def_path.open(encoding="utf-8") as def_file:
@@ -271,14 +271,14 @@ def iter_nets(
                 continue
             if in_nets and stripped.startswith("END NETS"):
                 if current_name is not None and selected:
-                    yield NetRecord(name=current_name, pins=tuple(current_pins))
+                    yield current_name, tuple(current_pins)
                 break
             if not in_nets:
                 continue
 
             if stripped.startswith("- "):
                 if current_name is not None and selected:
-                    yield NetRecord(name=current_name, pins=tuple(current_pins))
+                    yield current_name, tuple(current_pins)
                 current_name = None
                 current_pins = []
                 selected = False
@@ -290,15 +290,58 @@ def iter_nets(
                 if not selected:
                     continue
                 rest = stripped[len("- " + current_name) :].strip()
-                for inst, pin_name in PIN_CONN_RE.findall(rest):
-                    current_pins.append(PinRef(inst=inst, pin=pin_name))
+                current_pins.extend(PIN_CONN_RE.findall(rest))
                 continue
 
             if current_name is None or not selected:
                 continue
 
-            for inst, pin_name in PIN_CONN_RE.findall(stripped):
-                current_pins.append(PinRef(inst=inst, pin=pin_name))
+            current_pins.extend(PIN_CONN_RE.findall(stripped))
+
+
+def iter_nets(
+    def_path: Path,
+    *,
+    net_name_filter: Callable[[str], bool] | None = None,
+) -> Iterator[NetRecord]:
+    """Yield the public net/pin records, preserving DEF connection order."""
+    for name, pins in iter_net_connections(def_path, net_name_filter=net_name_filter):
+        yield NetRecord(name=name, pins=tuple(PinRef(inst=inst, pin=pin) for inst, pin in pins))
+
+
+def classify_net_connections(
+    net_name: str,
+    pins: tuple[tuple[str, str], ...],
+    inst_die_map: dict[str, str],
+    pin_die_map: dict[str, str],
+) -> str:
+    """Classify raw connections with the same rules as classify_net_pins."""
+    if net_name.endswith("_BOT"):
+        return "2d_bottom"
+    if net_name.endswith("_TOP"):
+        return "2d_upper"
+    bottom = False
+    upper = False
+    other = False
+    for inst, pin in pins:
+        if inst == "PIN":
+            die = pin_die_map.get(pin)
+        elif is_hbt_instance_name(inst) and pin == "BOT":
+            die = "bottom"
+        elif is_hbt_instance_name(inst) and pin == "TOP":
+            die = "upper"
+        else:
+            die = inst_die_map.get(inst)
+        bottom = bottom or die == "bottom"
+        upper = upper or die == "upper"
+        other = other or bool(die and die not in ("bottom", "upper"))
+        if bottom and upper:
+            return "3d"
+    if bottom and not other:
+        return "2d_bottom"
+    if upper and not other:
+        return "2d_upper"
+    return "unknown"
 
 
 def parse_nets(def_path: Path) -> list[NetRecord]:

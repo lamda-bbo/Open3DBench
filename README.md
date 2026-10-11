@@ -62,33 +62,64 @@ Replace `bp_fe` and `baseline` to run another case or keep multiple experiment
 outputs. GRT results are stored under `output/`, and evaluation reports are
 stored under `reports/`.
 
-### MLS submission, version 7
+### MLS submission, version 11
 
-Version 7 batches read-only protection and instance queries in native code,
-accelerates ordered pin deduplication, and avoids temporary strings in net sorting.
-With the same official image, inputs, 32 threads and one job, total entry runtime
-fell from 1087.582 to 1012.285 seconds (6.92%); all eight cases were faster.
-Submitted ODBs, canonical ODB/DEF/guides, plans and HBT records match version 6
-exactly. This is evaluator-input parity, not a new detailed-routing or WNS result.
-The fresh native build, real-database comparisons and 165 production tests passed.
+Version 11 preserves the version 8 routing policy and its 13 native source
+overlays, and optimizes six Python runtime files. It reduces allocations in DEF
+classification, guide diagnostics, demand-grid clipping and site checks; HBT
+search skips apply only to integer geometry proven to have no better HPWL point,
+with actual path-guard searches and statistics preserved. Final ODB publication
+uses a rename within the output filesystem after an independent reopen check.
 
-The routing policy remains unchanged. The official score of 30 is still unverified;
-see [submission instructions](submission/README.md),
+The saved official submission scored **22.5366 (22.54 displayed), with 5/8 cases
+successful**. A score of 25 remains unverified. Production tests (191), support
+tests (7), and five comparisons against frozen old runtime source passed.
+All eight cases have completed official local legality and artifact identity
+comparisons, combining seven completed pairs from the first batch and a full
+bp_quad retry; the first batch's overall FAIL is preserved. Explicit final DEF
+export also passed an FE smoke with unchanged canonical output. Complete entry
+comparisons use a shared host for functional
+validation; no clean exclusive 32-thread runtime gain is established. On
+official Python 3.12.3, standalone planner wall time decreased by 9.54%, 13.52%,
+and 17.91% for bp, bp_multi, and bp_quad with all four outputs identical. These phase
+measurements do not establish complete entry or official score gains.
+
+The final supplementary `submission.def` export now defaults to disabled
+(`SUBMISSION_EXPORT_DEF=0`). The required output remains `5_1_grt.odb`; the
+independent `read_db` verification remains mandatory, and `route.guide` is still
+written. The official evaluator regenerates canonical DEF/guides from the ODB.
+Set `SUBMISSION_EXPORT_DEF=1` to export a final DEF from the reopened ODB.
+
+See [submission instructions](submission/README.md),
 [validation scope](submission/VALIDATION.md), and
-[algorithm details](OpenROAD-GRT/ALGORITHM.md).
+[algorithm details](OpenROAD-GRT/ALGORITHM.md) for unchanged v8 settings and its
+historical timing evidence. The reserve75 and zero-extra-iteration FE experiments have
+mixed quality results and have not been adopted. The budget512 BP evaluator
+record is complete: TNS -157898 ns, WNS -22.1521 ns, DRC 13379, detailed wirelength
+7919728.98 μm and HBT count 4359. The subsequent retention driver exited 139;
+the RAM container was removed and the archive and receipt are missing. The
+independent quality audit is therefore **INCOMPLETE**, despite the completed
+evaluation record. The recommended package keeps v8's `max_new_hbts=384`
+and the six validated runtime changes; budget512 is not adopted. Reserve75 BP
+returned -11 during GRT before DRT/STA. The three saved server
+`Input DEF file not found` failures have no verified cause or fix.
 
 ```bash
 python3 submission/package.py
 bash submission/build.sh 32
 bash submission/run.sh \
   "$INPUT/cases/bp_fe/grt_input" \
-  output/bp_fe/mls_v7 \
+  output/bp_fe/mls_v11 \
   "$INPUT/platforms/nangate45_3D" 32
 ```
 
-The source-only `submission.zip` has `run.sh` at its root. Rebuild the native
-binary for this release. Local runtime observations exclude the preliminary build
-and do not predict the official normalized score.
+The source-only `submission.zip` has `run.sh` at its root. Build it in the official
+image; a verified v8 binary is compatible only after source/build identity
+checks. Full runtime comparisons exclude the preliminary build and fixed
+evaluator, and do not predict the official normalized score.
+Final release-package identity and documentation verification are governed by
+the `status` and `final` fields in
+`reports/optimization_v11/FINAL_INTEGRATION_AUDIT.json`.
 
 ## 3. Repository and Baseline
 

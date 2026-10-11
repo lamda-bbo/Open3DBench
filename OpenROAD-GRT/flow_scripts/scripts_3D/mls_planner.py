@@ -206,9 +206,13 @@ class DemandGrid:
     def indices(self, bounds):
         xl, yl, xh, yh = bounds
         n, area = self.bins, self.area
-        clamp = lambda value: max(0, min(n - 1, int(value)))
-        return (clamp((xl - area[0]) / self.dx), clamp((yl - area[1]) / self.dy),
-                clamp((xh - area[0]) / self.dx), clamp((yh - area[1]) / self.dy))
+        x0, y0 = int((xl - area[0]) / self.dx), int((yl - area[1]) / self.dy)
+        x1, y1 = int((xh - area[0]) / self.dx), int((yh - area[1]) / self.dy)
+        last = n - 1
+        return (0 if x0 < 0 else last if x0 > last else x0,
+                0 if y0 < 0 else last if y0 > last else y0,
+                0 if x1 < 0 else last if x1 > last else x1,
+                0 if y1 < 0 else last if y1 > last else y1)
 
     def adjust(self, die, pins, amount, dbu):
         """Replace demand after a committed split so the target cannot overfill."""
@@ -269,13 +273,18 @@ class HbtSites:
     def legal(self, point, extra=()):
         x, y = point
         bx, by = x // self.pitch, y // self.pitch
-        nearby = list(extra)
+        # Check spacing as records are visited, without constructing a list
+        # and a generator for each proposed site. Retain the same conservative
+        # square spacing for arbitrary coordinates and temporary extra sites.
+        for px, py in extra:
+            if not (abs(x - px) >= self.pitch or abs(y - py) >= self.pitch):
+                return False
         for ix in range(bx - 1, bx + 2):
             for iy in range(by - 1, by + 2):
-                nearby.extend(self.occupied.get((ix, iy), ()))
-        # Conservative square spacing also protects CUT SPACING for diagonal pairs.
-        return all(abs(x - px) >= self.pitch or abs(y - py) >= self.pitch
-                   for px, py in nearby)
+                for px, py in self.occupied.get((ix, iy), ()):
+                    if not (abs(x - px) >= self.pitch or abs(y - py) >= self.pitch):
+                        return False
+        return True
 
     def nearby(self, target, radius, extra=(), limit=8):
         if not self.nx or not self.ny:
