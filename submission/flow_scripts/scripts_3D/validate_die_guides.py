@@ -29,11 +29,15 @@ def main() -> int:
     parser.add_argument("results_dir", type=Path)
     parser.add_argument("--def-file", required=True, type=Path)
     parser.add_argument("--classification-cache", type=Path)
+    parser.add_argument('--prepared-metadata', type=Path)
+    parser.add_argument('--prepared-metadata-sha256')
     parser.add_argument("--top", type=int, default=50)
     parser.add_argument("--max-cc-rects", type=int, default=5000)
     parser.add_argument("--mode", choices=("serial", "parallel"),
                         default=os.environ.get("GRT_CHECK_MODE", "parallel"))
     args = parser.parse_args()
+    if args.prepared_metadata_sha256 is not None and args.prepared_metadata is None:
+        parser.error('--prepared-metadata-sha256 requires --prepared-metadata')
     if args.mode not in ("serial", "parallel"):
         parser.error(f"invalid GRT_CHECK_MODE: {args.mode!r}")
     try:
@@ -56,6 +60,11 @@ def main() -> int:
                             "--strict", "--top", str(args.top),
                             "--max-cc-rects", str(args.max_cc_rects)]
     commands = [layer_command, connectivity_command]
+    if args.prepared_metadata is not None:
+        for command in commands:
+            command.extend(['--prepared-metadata', str(args.prepared_metadata)])
+            if args.prepared_metadata_sha256 is not None:
+                command.extend(['--prepared-metadata-sha256', args.prepared_metadata_sha256])
     started = time.monotonic()
     if args.mode == "parallel":
         # Both programs are single-threaded and only read the shared inputs.

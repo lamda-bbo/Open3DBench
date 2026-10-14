@@ -326,15 +326,18 @@ def classify_net_connections(
     for inst, pin in pins:
         if inst == "PIN":
             die = pin_die_map.get(pin)
-        elif is_hbt_instance_name(inst) and pin == "BOT":
+        elif pin == "BOT" and is_hbt_instance_name(inst):
             die = "bottom"
-        elif is_hbt_instance_name(inst) and pin == "TOP":
+        elif pin == "TOP" and is_hbt_instance_name(inst):
             die = "upper"
         else:
             die = inst_die_map.get(inst)
-        bottom = bottom or die == "bottom"
-        upper = upper or die == "upper"
-        other = other or bool(die and die not in ("bottom", "upper"))
+        if die == "bottom":
+            bottom = True
+        elif die == "upper":
+            upper = True
+        elif die:
+            other = True
         if bottom and upper:
             return "3d"
     if bottom and not other:

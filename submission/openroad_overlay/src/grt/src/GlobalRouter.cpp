@@ -162,7 +162,317 @@ const char* mlsJsonDie(int die)
   return die == 1 ? "\"bottom\"" : die == 2 ? "\"upper\"" : "null";
 }
 
+bool routingMetadataTokenSupported(const std::string& name)
+{
+  if (name.empty()) {
+    return false;
+  }
+  for (const unsigned char c : name) {
+    // The legacy consumers tokenize raw DEF text, not escaped identifiers.
+    // Fall back rather than reinterpret Unicode whitespace or parentheses.
+    if (c < 33 || c > 126 || c == '(' || c == ')' || c == ';') {
+      return false;
+    }
+  }
+  return true;
+}
+
+int routingMetadataNameDie(const std::string& name)
+{
+  // Match die_net_common.name_die, including its older HBT name prefixes.
+  if ((name.size() >= 7 && name.compare(name.size() - 7, 7, "_bottom") == 0)
+      || name.rfind("HBT_BOTIN_", 0) == 0) {
+    return 1;
+  }
+  if ((name.size() >= 6 && name.compare(name.size() - 6, 6, "_upper") == 0)
+      || name.rfind("HBT_TOPIN_", 0) == 0) {
+    return 2;
+  }
+  return 0;
+}
+
+int routingMetadataLayerDie(const std::string& name)
+{
+  if (name.size() <= 5) {
+    return 0;
+  }
+  const char prefix[] = "metal";
+  for (size_t i = 0; i < 5; ++i) {
+    const char c = name[i] >= 'A' && name[i] <= 'Z' ? name[i] + ('a' - 'A') : name[i];
+    if (c != prefix[i]) {
+      return 0;
+    }
+  }
+  int number = 0;
+  for (size_t i = 5; i < name.size(); ++i) {
+    if (name[i] < '0' || name[i] > '9') {
+      return 0;
+    }
+    number = std::min(11, number * 10 + name[i] - '0');
+  }
+  return number <= 10 ? 1 : 2;
+}
+
 }  // namespace
+
+void GlobalRouter::exportPreparedRoutingMetadata(const char* file_name)
+{
+  auto* chip = db_->getChip();
+  auto* block = chip == nullptr ? nullptr : chip->getBlock();
+  if (block == nullptr) {
+    logger_->error(GRT, 733, "Prepared routing metadata requires a loaded design.");
+  }
+  std::ofstream out(file_name);
+  if (!out) {
+    logger_->error(GRT, 734, "Cannot open prepared routing metadata {}.", file_name);
+  }
+  const int def_units = block->getDefUnits();
+  const int db_units = block->getDbUnitsPerMicron();
+  const auto finish = [&]() {
+    out.close();
+    if (!out) {
+      logger_->error(GRT, 735, "Failed writing prepared routing metadata {}.", file_name);
+    }
+  };
+  const auto fallback = [&](const char* reason) {
+    out << "{\"schema_version\":1,\"compatible\":false,\"reason\":";
+    mlsJsonString(out, reason);
+    out << "}\n";
+    finish();
+  };
+  if (def_units <= 0 || db_units <= 0) {
+    fallback("invalid_def_units");
+    return;
+  }
+  if (!routingMetadataTokenSupported(block->getName())) {
+    fallback("unsupported_def_token");
+    return;
+  }
+  // User DEF properties can contain apparent connection/placement tokens.
+  // Keep the full writer/parser for these uncommon constructs instead of
+  // interpreting properties differently from the legacy regular expressions.
+  if (odb::dbProperty::find(block, "__ADS_DEF_PROPERTY_DEFINITIONS__") != nullptr) {
+    fallback("def_property_definitions");
+    return;
+  }
+  const double def_factor = double(def_units) / double(db_units);
+  std::unordered_map<odb::dbInst*, int> instance_dies;
+  std::unordered_map<odb::dbInst*, odb::Point> diagnostic_locations;
+  instance_dies.reserve(block->getInsts().size());
+  for (auto* inst : block->getInsts()) {
+    auto* master = inst->getMaster();
+    if (master == nullptr) {
+      logger_->error(GRT, 736, "Prepared routing metadata found a missing master.");
+    }
+    const std::string name = inst->getName();
+    const std::string master_name = master->getName();
+    if (!routingMetadataTokenSupported(name) || !routingMetadataTokenSupported(master_name)
+        || name.find("PLACED") != std::string::npos || name.find("FIXED") != std::string::npos
+        || master_name.find("PLACED") != std::string::npos
+        || master_name.find("FIXED") != std::string::npos) {
+      fallback("unsupported_component_token");
+      return;
+    }
+    if (auto* region = inst->getRegion(); region != nullptr) {
+      const std::string region_name = region->getName();
+      if (!routingMetadataTokenSupported(region_name)
+          || region_name.find("PLACED") != std::string::npos
+          || region_name.find("FIXED") != std::string::npos) {
+        fallback("unsupported_component_region");
+        return;
+      }
+    }
+    int die = routingMetadataNameDie(name);
+    if (die == 0) {
+      die = routingMetadataNameDie(master_name);
+    }
+    instance_dies.emplace(inst, die);
+    const auto status = inst->getPlacementStatus().getValue();
+    if (status != odb::dbPlacementStatus::SUGGESTED && status != odb::dbPlacementStatus::PLACED
+        && status != odb::dbPlacementStatus::LOCKED && status != odb::dbPlacementStatus::FIRM) {
+      continue;
+    }
+    // DefOut uses bbox lower-left getLocation, not getOrigin. It converts
+    // with a double unit ratio and truncates toward zero before formatting.
+    int x, y;
+    inst->getLocation(x, y);
+    const double dx = double(x) * def_factor;
+    const double dy = double(y) * def_factor;
+    if (dx < std::numeric_limits<int>::min() || dx > std::numeric_limits<int>::max()
+        || dy < std::numeric_limits<int>::min() || dy > std::numeric_limits<int>::max()) {
+      fallback("unsupported_def_coordinate");
+      return;
+    }
+    x = int(dx);
+    y = int(dy);
+    // parse_components_multiline's unsigned-coordinate regex ignores any
+    // placement with a negative X or Y, including negative HBT origins.
+    if (x >= 0 && y >= 0) {
+      diagnostic_locations.emplace(inst, odb::Point(x, y));
+    }
+  }
+  std::unordered_map<odb::dbBTerm*, int> package_dies;
+  for (auto* bterm : block->getBTerms()) {
+    if (bterm->getNet() == nullptr) {
+      continue;  // DefOut omits unconnected top-level pins.
+    }
+    if (!routingMetadataTokenSupported(bterm->getName())) {
+      fallback("unsupported_package_pin_token");
+      return;
+    }
+    int die = 0;
+    for (auto* bpin : bterm->getBPins()) {
+      for (auto* box : bpin->getBoxes()) {
+        auto* layer = box->getTechLayer();
+        if (layer == nullptr || !routingMetadataTokenSupported(layer->getName())) {
+          fallback("unsupported_package_layer");
+          return;
+        }
+        die |= routingMetadataLayerDie(layer->getName());
+      }
+    }
+    if (die == 3) {
+      // The old global pin-map parser rejects even pins on excluded nets.
+      fallback("package_pin_spans_both_dies");
+      return;
+    }
+    package_dies.emplace(bterm, die);
+  }
+  std::vector<odb::dbNet*> regular_nets;
+  regular_nets.reserve(block->getNets().size());
+  for (auto* net : block->getNets()) {
+    if (!routingMetadataTokenSupported(net->getName())) {
+      fallback("unsupported_net_token");
+      return;
+    }
+    bool regular = !net->isSpecial();
+    for (auto* iterm : net->getITerms()) {
+      if (!iterm->isSpecial()) {
+        regular = true;
+        // DefOut translates MTerm bus delimiters to the block delimiters.
+        auto* mterm = iterm->getMTerm();
+        std::vector<char> translated(mterm->getName().size() + 1);
+        if (!routingMetadataTokenSupported(mterm->getName(iterm->getInst(), translated.data()))) {
+          fallback("unsupported_instance_pin_token");
+          return;
+        }
+      }
+    }
+    if (regular) {
+      if (net->getWire() != nullptr) {
+        // Routed coordinates are also matched by PIN_CONN_RE in NETS.
+        fallback("regular_net_wire");
+        return;
+      }
+      regular_nets.push_back(net);
+    }
+  }
+  // This is DefOut.sortedSet's name order, preserving classification-cache
+  // insertion order rather than OpenDB's creation order.
+  std::sort(regular_nets.begin(), regular_nets.end(), [](auto* a, auto* b) {
+    return std::strcmp(a->getConstName(), b->getConstName()) < 0;
+  });
+  out << "{\"schema_version\":1,\"compatible\":true,\"def_units\":" << def_units
+      << ",\"dbu_per_micron\":" << db_units << ",\"nets\":[\n";
+  bool first = true;
+  for (auto* net : regular_nets) {
+    const std::string name = net->getName();
+    int die = 0;
+    size_t pin_count = net->getBTerms().size();
+    for (auto* bterm : net->getBTerms()) {
+      die |= package_dies.at(bterm);
+    }
+    for (auto* iterm : net->getITerms()) {
+      if (iterm->isSpecial()) {
+        continue;
+      }
+      ++pin_count;
+      auto* inst = iterm->getInst();
+      auto* mterm = iterm->getMTerm();
+      std::vector<char> translated(mterm->getName().size() + 1);
+      const std::string pin = mterm->getName(inst, translated.data());
+      const std::string inst_name = inst->getName();
+      if (inst_name == "PIN") {
+        // classify_net_connections treats even a real instance named PIN
+        // as a package-pin reference. Preserve this name collision exactly.
+        auto* package = block->findBTerm(pin.c_str());
+        const auto package_die = package_dies.find(package);
+        if (package_die != package_dies.end()) {
+          die |= package_die->second;
+        }
+      } else {
+        const bool hbt = mlsIsHbt(inst_name);
+        die |= hbt && pin == "BOT" ? 1 : hbt && pin == "TOP" ? 2 : instance_dies.at(inst);
+      }
+    }
+    const bool bottom = name.size() >= 4 && name.compare(name.size() - 4, 4, "_BOT") == 0;
+    const bool upper = name.size() >= 4 && name.compare(name.size() - 4, 4, "_TOP") == 0;
+    const char* label = bottom ? "2d_bottom" : upper ? "2d_upper"
+                        : die == 1 ? "2d_bottom" : die == 2 ? "2d_upper"
+                        : die == 3 ? "3d" : "unknown";
+    if (!first) {
+      out.put(',');
+    }
+    first = false;
+    out.put('[');
+    mlsJsonString(out, name);
+    out << ',';
+    mlsJsonString(out, label);
+    out << ',' << pin_count << "]\n";
+  }
+  out << "],\"split_net_pins\":{\n";
+  first = true;
+  auto* literal_pin_inst = block->findInst("PIN");
+  for (auto* net : regular_nets) {
+    const std::string name = net->getName();
+    if (name.size() < 4 || (name.compare(name.size() - 4, 4, "_BOT") != 0
+                            && name.compare(name.size() - 4, 4, "_TOP") != 0)) {
+      continue;
+    }
+    std::vector<std::pair<std::string, odb::Point>> pins;
+    // The legacy diagnostic resolves even a package connection through a
+    // COMPONENT named literally PIN. Usually this instance does not exist.
+    const auto package_location = diagnostic_locations.find(literal_pin_inst);
+    if (package_location != diagnostic_locations.end()) {
+      for (auto* bterm : net->getBTerms()) {
+        (void) bterm;
+        pins.emplace_back("PIN", package_location->second);
+      }
+    }
+    for (auto* iterm : net->getITerms()) {
+      if (iterm->isSpecial()) {
+        continue;
+      }
+      auto* inst = iterm->getInst();
+      const auto location = diagnostic_locations.find(inst);
+      if (location != diagnostic_locations.end()) {
+        pins.emplace_back(inst->getName(), location->second);
+      }
+    }
+    if (pins.empty()) {
+      continue;  // build_net_pins creates entries only when a point is found.
+    }
+    if (!first) {
+      out.put(',');
+    }
+    first = false;
+    mlsJsonString(out, name);
+    out << ":[";
+    bool first_pin = true;
+    for (const auto& [inst, point] : pins) {
+      if (!first_pin) {
+        out.put(',');
+      }
+      first_pin = false;
+      out.put('[');
+      mlsJsonString(out, inst);
+      out << ',' << point.x() << ',' << point.y() << ']';
+    }
+    out << "]\n";
+  }
+  out << "}}\n";
+  finish();
+}
 
 void GlobalRouter::exportMlsManifest(const char* file_name)
 {

@@ -1,3 +1,27 @@
+# 第十三版：直接复用准备后的数据库检查信息
+
+本版以 v12 为基线，沿用 MLS/HBT、选层与容量策略。新原生接口从准备后的 OpenDB 导出分类与严格连通检查所需信息，省去中间 DEF 写入及重复解析；不支持的特殊 DEF 语法自动回退，错误或哈希不一致仍阻止发布。输入 master 扫描只读至 COMPONENTS 结束，输入摘要改为流式计算。
+
+全八例新旧提交 ODB、guide、MLS 计划和官方 canonical DEF/guide/ODB 逐字节一致，官方合法性通过；222 项生产、7 项支持及 14 项验证器篡改/留存测试通过。13 次真实原生导出与原 DEF writer/parser 对照通过，并确认数据库未改动。NDR 与供电/地参考名称由只读 Tcl 兼容性检查保护，查询不可用时回退原 DEF 路径。记录见 `reports/optimization_v13/all8_final_validation/runtime_report.json`。
+
+本地入口耗时来自共享宿主的 RAM 工作区，仅为观测；官方已知成绩仍为 23.00806162648646（23.01），尚未确认达到 25 分。预算 512/768 的时序实验与本推荐包分开保存，本包预算保持 384。
+
+---
+
+# 历史 v12 与更早记录
+
+# 第十二版运行加速
+
+本轮最终八例对照全部通过：每例新旧提交 ODB、source guide、MLS 计划及官方 canonical DEF/guide/ODB 均一致，官方合法性均通过。此结论来自本地官方容器；新官方分数仍未取得。
+
+最新官方基线为 **23.01 分，5/8 成功**。本版保留全部原生覆盖层与物理策略，使用有界精确 guide 网格、等价连接分类，并让只读检查与 ODB 最终化重叠。至少 3 核且并行模式启用重叠；所有检查成功后才发布，独立 ODB 重开仍执行。
+
+已通过 207 项生产与 7 项支持工具回归。全八例完整入口、官方合法性与产物身份以 `reports/optimization_v12/all8_final_validation/runtime_report.json` 为准。完整说明见仓库 `submission/README.md`、`submission/VALIDATION.md` 与本目录 `ALGORITHM.md`。新正式成绩尚未取得。
+
+---
+
+# 历史 v11 说明
+
 # OpenROAD 3D GRT Baseline
 
 The v11 submission keeps the v8 routing policy and all 13 native overlay files, and optimizes Python planning, classification, guide diagnostics and final ODB publication. See [submission instructions](../submission/README.md), [validation scope](../submission/VALIDATION.md) and [algorithm details](ALGORITHM.md).

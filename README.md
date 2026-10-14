@@ -62,7 +62,84 @@ Replace `bp_fe` and `baseline` to run another case or keep multiple experiment
 outputs. GRT results are stored under `output/`, and evaluation reports are
 stored under `reports/`.
 
-### MLS submission, version 11
+### Version 14 experimental routing optimization
+
+The [v14 tree-guard source patch](experiments/v14_tree_guard.patch)
+combines v13's runtime implementation with adaptive 4/8/16 receiver grouping,
+bounded geometric tree-length checks, and the existing 384-HBT budget. All eight
+official-container legality and policy/runtime output identity comparisons pass.
+Complete BP and BE quality measurements are retained and independently verified;
+BP improves TNS and DRC but has slightly worse WNS and detailed wirelength.
+See [the measured outcomes and local validation package hashes](docs/optimization_v14_metrics.json).
+The v13 and v14 ZIP packages remain local; this GitHub change contains source,
+the experimental patch, and the result summary. The complete raw EDA evidence
+remains in the local `reports/` directory.
+
+| Case | TNS improvement | WNS improvement | DRC reduction | Wirelength change |
+|---|---:|---:|---:|---:|
+| BP | 2.19% | -1.04% | 2.22% | +0.078% |
+| BE | 0.35% | 1.75% | 0.17% | -0.056% |
+
+BP compares a historical 12-thread reference with an 8-thread candidate; BE uses
+8 threads for both. These measurements do not establish an official score gain.
+The final experimental archive passed 44 existing offline regressions after the
+host restart, plus four geometric-kernel and input-validation checks.
+
+The tracked source contains the stable v13 implementation. The experimental
+patch updates the planner and configuration in both `OpenROAD-GRT/flow_scripts/`
+and `submission/flow_scripts/`, so local packaging preserves the selected policy.
+To try v14 with the tracked source, apply the patch before building:
+
+```bash
+git apply --check experiments/v14_tree_guard.patch
+git apply experiments/v14_tree_guard.patch
+bash submission/build.sh 32
+```
+
+The patch enables `multi_branch_adaptive_groups` and `multi_branch_tree_guard`.
+Each alternative must preserve the original 8-receiver grouping as an available
+fallback and pass the receiver-path guards. It must not increase maximum leaf
+group load, whole-family HPWL, integer rectilinear MST length, or HBT count.
+The source documentation in `submission/` still describes stable v13; this
+section and the linked measurements describe the v14 experiment.
+The whole-family geometric check draws on
+[rectilinear minimum spanning tree construction](https://users.ece.northwestern.edu/~haizhou/publications/zhou02ipl.pdf);
+its geometric bounds do not guarantee better extracted timing.
+
+A separate low-layer capacity experiment reduced FE's DRC by 18.33%. Its remaining
+BP, BE, swerv quality runs and final all-eight comparison were interrupted before
+completion could be verified after the host restart. It is not included in the
+tree-guard patch. The known official score remains 23.01; 25 is unverified.
+
+### Stable MLS submission, version 13
+
+The v13 package uses native prepared metadata and streaming input discovery. All eight official-container legality and physical/canonical byte-identity comparisons with v12 pass. The routing policy is unchanged. See `reports/optimization_v13/FINAL_RELEASE.json` and `submission/README.md`. The new official score remains unverified.
+
+### Historical MLS submission, version 12
+
+Version 12 starts from the official **23.0081 (23.01 displayed), 5/8 successful**
+v11 submission. It preserves all native routing overlays and physical policies,
+adds an exact bounded sparse guide index and equivalent net classification, and
+overlaps independent validation with ODB finalization. The final database and
+completion marker are published only after both finalization and validation
+succeed. The independent ODB reopen remains mandatory.
+
+Production tests (207) and support tests (7) pass. The final eight-case official
+legality and artifact comparison is recorded in
+`reports/optimization_v12/all8_final_validation/runtime_report.json`; release
+identity is recorded in `reports/optimization_v12/FINAL_RELEASE.json`.
+Individual complete-entry times are shared-host observations with RAM working
+storage; a new official score of 25 is unverified. Three server cases reported
+missing input DEF before the submitted entry could be identified as running;
+local inputs exist, but the server discovery path remains unknown.
+
+```bash
+python3 submission/package.py
+bash submission/build.sh 32
+bash submission/run.sh "$INPUT/cases/bp_fe/grt_input" output/bp_fe/mls_v12 "$INPUT/platforms/nangate45_3D" 32
+```
+
+### Historical MLS submission, version 11
 
 Version 11 preserves the version 8 routing policy and its 13 native source
 overlays, and optimizes six Python runtime files. It reduces allocations in DEF

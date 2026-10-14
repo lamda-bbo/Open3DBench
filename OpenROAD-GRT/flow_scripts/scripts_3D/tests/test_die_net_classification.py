@@ -6,6 +6,7 @@ from __future__ import annotations
 import sys
 import contextlib
 import io
+import itertools
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +15,10 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from die_net_common import (
+    PinRef,
     classify_all_nets,
+    classify_net_connections,
+    classify_net_pins,
     iter_nets,
     parse_inst_die_map,
     parse_nets,
@@ -26,6 +30,29 @@ from unittest.mock import patch
 
 
 class PackagePinTest(unittest.TestCase):
+    def test_raw_classifier_matches_set_based_pin_oracle(self) -> None:
+        # Exercise ordinary BOT/TOP pins, package-pin precedence, both HBT
+        # prefixes, unknown dies and conflicting suffixes independently of
+        # the optimized raw classifier's boolean state updates.
+        inst_dies = {"lo": "bottom", "hi": "upper", "odd": "other",
+                     "HBT_a": "upper", "LS_HBT_b": "bottom"}
+        pin_dies = {"io_lo": "bottom", "io_hi": "upper", "BOT": "upper"}
+        connections = [("lo", "A"), ("hi", "A"), ("odd", "A"),
+                       ("absent", "A"), ("lo", "TOP"), ("hi", "BOT"),
+                       ("PIN", "io_lo"), ("PIN", "io_hi"), ("PIN", "BOT"),
+                       ("PIN", "absent"), ("HBT_a", "BOT"),
+                       ("HBT_a", "TOP"), ("HBT_a", "A"),
+                       ("LS_HBT_b", "BOT"), ("LS_HBT_b", "TOP")]
+        for count in range(4):
+            for pins in itertools.product(connections, repeat=count):
+                refs = tuple(PinRef(inst=inst, pin=pin) for inst, pin in pins)
+                for name in ("plain", "forced_BOT", "forced_TOP"):
+                    self.assertEqual(
+                        classify_net_connections(name, pins, inst_dies, pin_dies),
+                        classify_net_pins(name, refs, inst_dies, pin_dies),
+                        (name, pins),
+                    )
+
     def test_package_pin_layer_drives_classification(self) -> None:
         content = """VERSION 5.8 ;
 DESIGN test ;

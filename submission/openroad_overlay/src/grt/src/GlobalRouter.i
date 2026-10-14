@@ -239,6 +239,12 @@ export_mls_manifest(const char* file_name)
   getGlobalRouter()->exportMlsManifest(file_name);
 }
 
+void
+export_prepared_routing_metadata(const char* file_name)
+{
+  getGlobalRouter()->exportPreparedRoutingMetadata(file_name);
+}
+
 std::vector<std::string>
 mls_protected_net_names()
 {

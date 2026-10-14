@@ -1,0 +1,664 @@
+--- a/OpenROAD-GRT/flow_scripts/scripts_3D/mls_planner.py
++++ b/OpenROAD-GRT/flow_scripts/scripts_3D/mls_planner.py
+@@ -13,7 +13,7 @@
+ import json
+ import math
+ import re
+-from collections import Counter, defaultdict
++from collections import Counter, defaultdict, OrderedDict
+ from pathlib import Path
+ from statistics import median_low
+ 
+@@ -21,6 +21,8 @@
+ DEFAULT_CONFIG = {
+     "enabled": True,
+     "multi_branch_enabled": False,
++    "multi_branch_adaptive_groups": False,
++    "multi_branch_tree_guard": False,
+     "multi_branch_sink_guard": True,
+     "multi_branch_max_path_growth_fraction": 0.05,
+     "multi_branch_max_path_growth_um": 6.4,
+@@ -106,9 +108,13 @@
+         if unknown:
+             raise ValueError(f"Unknown MLS configuration keys: {sorted(unknown)}")
+         values.update(overrides)
+-    for key in ("enabled", "dynamic_demand", "joint_site_placement", "relocation_enabled", "multi_branch_enabled", "multi_branch_sink_guard"):
++    for key in ("enabled", "dynamic_demand", "joint_site_placement", "relocation_enabled", "multi_branch_enabled", "multi_branch_sink_guard", "multi_branch_adaptive_groups", "multi_branch_tree_guard"):
+         if not isinstance(values[key], bool):
+             raise ValueError(f"{key} must be a JSON boolean")
++    if values["multi_branch_tree_guard"] and (
++            not values["multi_branch_adaptive_groups"] or not values["multi_branch_sink_guard"]
++            or values["multi_branch_max_groups"] != 8):
++        raise ValueError("Tree guard requires adaptive original8 and all receiver guards")
+     for key in ("pitch_um", "min_span_um"):
+         if not math.isfinite(values[key]) or values[key] <= 0:
+             raise ValueError(f"{key} must be positive and finite")
+@@ -418,7 +424,7 @@
+     return sorted(groups, key=lambda group: (*center(group), key(group[0])))
+ 
+ 
+-def branch_candidate(net, config, dbu, sites):
++def _fixed_branch_candidate(net, config, dbu, sites):
+     """Geometry/resistance proxy only: no claimed STA or routed-tree estimate."""
+     pins = net["pins"]
+     # A legal branch needs one driver in addition to the minimum sink count.
+@@ -519,6 +525,268 @@
+                 "geometric_path_max_um": max(row[1] + row[2] for row in rows)}}
+ 
+ 
++
++from bisect import bisect_left, bisect_right
++
++
++def _rmst_uncached(points, x_weight=1, y_weight=1):
++    if type(x_weight) is not int or type(y_weight) is not int or min(x_weight, y_weight) <= 0:
++        raise ValueError('Positive integer metric weights required')
++    raw = sorted(set(points))
++    if any(type(c) is not int for p in raw for c in p):
++        raise ValueError('Integer nonboolean DBU coordinates required')
++    n = len(raw)
++    if n < 2:
++        return {'points': n, 'h_dbu': 0, 'v_dbu': 0, 'weight_dbu': 0, 'candidate_edges': 0}
++    scaled = [(x*x_weight, y*y_weight) for x, y in raw]
++    edges = set()
++    def add(i, j):
++        if i != j:
++            edges.add((min(i, j), max(i, j)))
++    for sx in (-1, 1):
++        for sy in (-1, 1):
++            for swap in (False, True):
++                transformed = []
++                for i, (x, y) in enumerate(scaled):
++                    x, y = sx*x, sy*y
++                    if swap:
++                        x, y = y, x
++                    transformed.append((x-y, y, x+y, i))
++                transformed.sort(reverse=True)
++                ys = sorted(set(row[1] for row in transformed))
++                size = len(ys)
++                bit = [None] * (size+1)
++                offset = 0
++                while offset < n:
++                    end = offset+1
++                    while end < n and transformed[end][0] == transformed[offset][0]:
++                        end += 1
++                    # Strict u and v inequalities avoid ambiguity on boundaries.
++                    for _, y, total, i in transformed[offset:end]:
++                        pos = size-bisect_right(ys, y)
++                        nearest = None
++                        while pos:
++                            value = bit[pos]
++                            if value is not None and (nearest is None or value < nearest):
++                                nearest = value
++                            pos -= pos & -pos
++                        if nearest is not None:
++                            add(i, nearest[1])
++                    for _, y, total, i in transformed[offset:end]:
++                        pos = size-bisect_left(ys, y)
++                        value = (total, i)
++                        while pos <= size:
++                            if bit[pos] is None or value < bit[pos]:
++                                bit[pos] = value
++                            pos += pos & -pos
++                    offset = end
++    # Each line contributes consecutive neighbors in both ray directions.
++    for direction in range(4):
++        rows = []
++        for i, (x, y) in enumerate(scaled):
++            key, position = ((y, x), (x, y), (x-y, x), (x+y, x))[direction]
++            rows.append((key, position, i))
++        rows.sort()
++        for a, b in zip(rows, rows[1:]):
++            if a[0] == b[0]:
++                add(a[2], b[2])
++    ordered = sorted((abs(scaled[i][0]-scaled[j][0])+abs(scaled[i][1]-scaled[j][1]), i, j)
++                     for i, j in edges)
++    parent = list(range(n))
++    def find(i):
++        while parent[i] != i:
++            parent[i] = parent[parent[i]]
++            i = parent[i]
++        return i
++    count = horizontal = vertical = weight = 0
++    for cost, i, j in ordered:
++        a, b = find(i), find(j)
++        if a == b:
++            continue
++        parent[a] = b
++        horizontal += abs(raw[i][0]-raw[j][0])
++        vertical += abs(raw[i][1]-raw[j][1])
++        weight += cost
++        count += 1
++        if count == n-1:
++            break
++    if count != n-1:
++        raise AssertionError('Octant spanning graph is disconnected')
++    return {'points': n, 'h_dbu': horizontal, 'v_dbu': vertical,
++            'weight_dbu': weight, 'candidate_edges': len(edges)}
++
++
++
++# Bound cached immutable geometry by BOTH coordinate membership and entry count.
++_TREE_RMST_MAX_POINTS = 32768
++_TREE_RMST_MAX_ENTRIES = 1024
++_TREE_RMST_CACHE = OrderedDict()
++_TREE_RMST_POINTS = 0
++_TREE_RMST_STATS = Counter()
++
++def _tree_reset_cache():
++    global _TREE_RMST_POINTS
++    _TREE_RMST_CACHE.clear()
++    _TREE_RMST_POINTS = 0
++    _TREE_RMST_STATS.clear()
++
++def _tree_rmst(points):
++    global _TREE_RMST_POINTS
++    # Validate before deduplication: True must never disappear as a duplicate1.
++    points = tuple(points)
++    if any(type(c) is not int for p in points for c in p):
++        raise ValueError("Integer nonboolean DBU coordinates required")
++    key = tuple(sorted(set(points)))
++    if key in _TREE_RMST_CACHE:
++        _TREE_RMST_STATS["hits"] += 1
++        _TREE_RMST_CACHE.move_to_end(key)
++        return dict(_TREE_RMST_CACHE[key])
++    _TREE_RMST_STATS["misses"] += 1
++    result = _rmst_uncached(key)
++    if len(key) <= _TREE_RMST_MAX_POINTS:
++        while _TREE_RMST_CACHE and (
++                _TREE_RMST_POINTS + len(key) > _TREE_RMST_MAX_POINTS
++                or len(_TREE_RMST_CACHE) >= _TREE_RMST_MAX_ENTRIES):
++            old, _value = _TREE_RMST_CACHE.popitem(last=False)
++            _TREE_RMST_POINTS -= len(old)
++        _TREE_RMST_CACHE[key] = result
++        _TREE_RMST_POINTS += len(key)
++    _TREE_RMST_STATS["peak_points"] = max(_TREE_RMST_STATS["peak_points"], _TREE_RMST_POINTS)
++    _TREE_RMST_STATS["peak_entries"] = max(_TREE_RMST_STATS["peak_entries"], len(_TREE_RMST_CACHE))
++    return dict(result)
++
++def branch_family_rmst(choice, dbu):
++    """Sum terminal Manhattan MSTs over the entire passive HBT family.
++
++    This is a geometry proxy, not obstacle-aware routed WL, RCX C or STA.
++    Integer DBU sums allow an exact dominance check without fitted wire-C.
++    """
++    positions = choice["positions"]
++    source = [(p["x"], p["y"]) for p in [choice["driver"]] + choice["local_sinks"]] + [positions[0]]
++    pointsets = [source, positions]
++    pointsets += [[(p["x"], p["y"]) for p in group] + [position]
++                  for group, position in zip(choice["groups"], positions[1:])]
++    rows = [_tree_rmst(points) for points in pointsets]
++    h = sum(row["h_dbu"] for row in rows)
++    v = sum(row["v_dbu"] for row in rows)
++    return {"whole_family_dbu": h + v, "whole_family_um": (h + v) / dbu,
++            "horizontal_dbu": h, "vertical_dbu": v,
++            "source_subnet_dbu": rows[0]["h_dbu"] + rows[0]["v_dbu"],
++            "borrowed_subnet_dbu": rows[1]["h_dbu"] + rows[1]["v_dbu"],
++            "leaf_subnets_dbu": sum(row["h_dbu"] + row["v_dbu"] for row in rows[2:])}
++
++def _tree_reference(choice):
++    ref = lambda p: {"inst": p["inst"], "pin": p["pin"]}
++    return {"positions": [list(point) for point in choice["positions"]],
++            "driver": ref(choice["driver"]),
++            "local_sinks": [ref(p) for p in choice["local_sinks"]],
++            "groups": [[ref(p) for p in group] for group in choice["groups"]]}
++
++def branch_family_hpwl(choice, dbu):
++    """Whole-family HPWL lower-bound proxy; not RCX capacitance or STA."""
++    positions = choice["positions"]
++    source_pins = [choice["driver"]] + choice["local_sinks"] + [{"x": positions[0][0], "y": positions[0][1]}]
++    upper_pins = [{"x": x, "y": y} for x, y in positions]
++    pinsets = [source_pins, upper_pins]
++    pinsets += [group + [{"x": point[0], "y": point[1]}]
++                for group, point in zip(choice["groups"], positions[1:])]
++    bounds = [bbox(pins) for pins in pinsets]
++    horizontal = sum(box[2] - box[0] for box in bounds) / dbu
++    vertical = sum(box[3] - box[1] for box in bounds) / dbu
++    spans = [box[2] - box[0] + box[3] - box[1] for box in bounds]
++    return {"whole_family_um": horizontal + vertical,
++            "horizontal_um": horizontal, "vertical_um": vertical,
++            "source_subnet_um": spans[0] / dbu,
++            "borrowed_subnet_um": spans[1] / dbu,
++            "leaf_subnets_um": sum(spans[2:]) / dbu}
++
++
++def branch_candidate(net, config, dbu, sites):
++    original = _fixed_branch_candidate(net, config, dbu, sites)
++    if not config["multi_branch_adaptive_groups"]:
++        return original
++    # A conservative decision requires an eligible original8 comparator.
++    if original is None:
++        return None
++    if len(net["pins"]) < config["multi_branch_min_fanout"] + 1:
++        return None
++    intended_groups = max(2, math.ceil((len(net["pins"]) - 1) / config["multi_branch_target_sinks"]))
++    fixed_by_count = {min(config["multi_branch_max_groups"], intended_groups): original}
++    choices = []
++    if original is not None:
++        choices.append((original, config["multi_branch_max_groups"], 0))
++    # Keep every original eligibility rule, geometric receiver guard and gain
++    # floor. Sixteen is an internal adaptive cap, not an ordinary config cap.
++    for index, cap in enumerate((4, 8, 16), 1):
++        if cap == config["multi_branch_max_groups"]:
++            continue
++        realized_count = min(cap, intended_groups)
++        if realized_count in fixed_by_count:
++            choice = fixed_by_count[realized_count]
++        else:
++            trial_config = dict(config, multi_branch_max_groups=cap)
++            choice = _fixed_branch_candidate(net, trial_config, dbu, sites)
++            fixed_by_count[realized_count] = choice
++        if choice is not None:
++            choices.append((choice, cap, index))
++    if not choices:
++        return None
++    if original is not None:
++        original_leaf_limit = max(len(group) for group in original["groups"])
++        choices = [row for row in choices
++                   if max(len(group) for group in row[0]["groups"]) <= original_leaf_limit]
++
++    original_tree = None
++    selected_tree = None
++    original_only = False
++    if config["multi_branch_tree_guard"]:
++        # HBTs are passive; an extra boundary is not a buffering benefit.
++        choices = [row for row in choices
++                   if len(row[0]["positions"]) <= len(original["positions"])]
++        original_only = len({id(row[0]) for row in choices}) == 1
++        if original_only:
++            # No new geometry is possible; exact original fallback is already
++            # dominant. Avoid doing a large source MST only to compare itself.
++            _TREE_RMST_STATS["original_only"] += 1
++        else:
++            tree_by_choice = {}
++            def choice_tree(item):
++                key = id(item)
++                if key not in tree_by_choice:
++                    tree_by_choice[key] = branch_family_rmst(item, dbu)
++                return tree_by_choice[key]
++            original_tree = choice_tree(original)
++            before = len(choices)
++            choices = [row for row in choices
++                       if choice_tree(row[0])["whole_family_dbu"] <= original_tree["whole_family_dbu"]]
++            _TREE_RMST_STATS["rejected_tree_choices"] += before - len(choices)
++
++    wire_by_choice = {}
++    def choice_wire(item):
++        key = id(item)
++        if key not in wire_by_choice:
++            wire_by_choice[key] = branch_family_hpwl(item, dbu)
++        return wire_by_choice[key]
++    baseline_wire = choice_wire(original) if original else None
++    choice, cap, _index = min(choices, key=lambda item: (
++        choice_wire(item[0])["whole_family_um"],
++        len(item[0]["positions"]), -item[0]["score"], item[2]))
++    # Metadata records the decision transparently; validation still reconstructs
++    # physical trees and every remote source-to-sink path independently.
++    choice["proxy"] = dict(choice["proxy"],
++        adaptive_group_cap=cap, adaptive_trial_group_caps=[row[1] for row in choices],
++        family_hpwl_proxy=choice_wire(choice),
++        original_group_family_hpwl_proxy=baseline_wire)
++    if config["multi_branch_tree_guard"]:
++        selected_tree = None if original_only else choice_tree(choice)
++        choice["proxy"] = dict(choice["proxy"], tree_guard_enabled=True,
++            tree_guard_original_only=original_only,
++            family_rmst_proxy=selected_tree,
++            original_group_family_rmst_proxy=original_tree,
++            tree_guard_hbt_limit=len(original["positions"]),
++            tree_guard_reference=_tree_reference(original))
++    return choice
++
+ def build_branch_entry(net, choice, hnames, dbu, size):
+     groups, points = choice["groups"], choice["positions"]
+     names = [f"{net['name']}__MLS__S{i}__{'TOP' if i == 1 else 'BOT'}"
+@@ -545,6 +813,7 @@
+ 
+ 
+ def plan_design(manifest, config=None):
++    _tree_reset_cache()
+     config = config_values(config)
+     original_manifest = manifest
+     from hbt_optimizer import optimize_hbts
+--- a/OpenROAD-GRT/flow_scripts/scripts_3D/mls_config.json
++++ b/OpenROAD-GRT/flow_scripts/scripts_3D/mls_config.json
+@@ -20,5 +20,7 @@
+   "relocation_radius": 2,
+   "relocation_max_moves": 65536,
+   "relocation_min_improvement_um": 0.1,
+-  "multi_branch_enabled": true
++  "multi_branch_enabled": true,
++  "multi_branch_adaptive_groups": true,
++  "multi_branch_tree_guard": true
+ }
+--- a/submission/flow_scripts/scripts_3D/mls_planner.py
++++ b/submission/flow_scripts/scripts_3D/mls_planner.py
+@@ -13,7 +13,7 @@
+ import json
+ import math
+ import re
+-from collections import Counter, defaultdict
++from collections import Counter, defaultdict, OrderedDict
+ from pathlib import Path
+ from statistics import median_low
+ 
+@@ -21,6 +21,8 @@
+ DEFAULT_CONFIG = {
+     "enabled": True,
+     "multi_branch_enabled": False,
++    "multi_branch_adaptive_groups": False,
++    "multi_branch_tree_guard": False,
+     "multi_branch_sink_guard": True,
+     "multi_branch_max_path_growth_fraction": 0.05,
+     "multi_branch_max_path_growth_um": 6.4,
+@@ -106,9 +108,13 @@
+         if unknown:
+             raise ValueError(f"Unknown MLS configuration keys: {sorted(unknown)}")
+         values.update(overrides)
+-    for key in ("enabled", "dynamic_demand", "joint_site_placement", "relocation_enabled", "multi_branch_enabled", "multi_branch_sink_guard"):
++    for key in ("enabled", "dynamic_demand", "joint_site_placement", "relocation_enabled", "multi_branch_enabled", "multi_branch_sink_guard", "multi_branch_adaptive_groups", "multi_branch_tree_guard"):
+         if not isinstance(values[key], bool):
+             raise ValueError(f"{key} must be a JSON boolean")
++    if values["multi_branch_tree_guard"] and (
++            not values["multi_branch_adaptive_groups"] or not values["multi_branch_sink_guard"]
++            or values["multi_branch_max_groups"] != 8):
++        raise ValueError("Tree guard requires adaptive original8 and all receiver guards")
+     for key in ("pitch_um", "min_span_um"):
+         if not math.isfinite(values[key]) or values[key] <= 0:
+             raise ValueError(f"{key} must be positive and finite")
+@@ -418,7 +424,7 @@
+     return sorted(groups, key=lambda group: (*center(group), key(group[0])))
+ 
+ 
+-def branch_candidate(net, config, dbu, sites):
++def _fixed_branch_candidate(net, config, dbu, sites):
+     """Geometry/resistance proxy only: no claimed STA or routed-tree estimate."""
+     pins = net["pins"]
+     # A legal branch needs one driver in addition to the minimum sink count.
+@@ -519,6 +525,268 @@
+                 "geometric_path_max_um": max(row[1] + row[2] for row in rows)}}
+ 
+ 
++
++from bisect import bisect_left, bisect_right
++
++
++def _rmst_uncached(points, x_weight=1, y_weight=1):
++    if type(x_weight) is not int or type(y_weight) is not int or min(x_weight, y_weight) <= 0:
++        raise ValueError('Positive integer metric weights required')
++    raw = sorted(set(points))
++    if any(type(c) is not int for p in raw for c in p):
++        raise ValueError('Integer nonboolean DBU coordinates required')
++    n = len(raw)
++    if n < 2:
++        return {'points': n, 'h_dbu': 0, 'v_dbu': 0, 'weight_dbu': 0, 'candidate_edges': 0}
++    scaled = [(x*x_weight, y*y_weight) for x, y in raw]
++    edges = set()
++    def add(i, j):
++        if i != j:
++            edges.add((min(i, j), max(i, j)))
++    for sx in (-1, 1):
++        for sy in (-1, 1):
++            for swap in (False, True):
++                transformed = []
++                for i, (x, y) in enumerate(scaled):
++                    x, y = sx*x, sy*y
++                    if swap:
++                        x, y = y, x
++                    transformed.append((x-y, y, x+y, i))
++                transformed.sort(reverse=True)
++                ys = sorted(set(row[1] for row in transformed))
++                size = len(ys)
++                bit = [None] * (size+1)
++                offset = 0
++                while offset < n:
++                    end = offset+1
++                    while end < n and transformed[end][0] == transformed[offset][0]:
++                        end += 1
++                    # Strict u and v inequalities avoid ambiguity on boundaries.
++                    for _, y, total, i in transformed[offset:end]:
++                        pos = size-bisect_right(ys, y)
++                        nearest = None
++                        while pos:
++                            value = bit[pos]
++                            if value is not None and (nearest is None or value < nearest):
++                                nearest = value
++                            pos -= pos & -pos
++                        if nearest is not None:
++                            add(i, nearest[1])
++                    for _, y, total, i in transformed[offset:end]:
++                        pos = size-bisect_left(ys, y)
++                        value = (total, i)
++                        while pos <= size:
++                            if bit[pos] is None or value < bit[pos]:
++                                bit[pos] = value
++                            pos += pos & -pos
++                    offset = end
++    # Each line contributes consecutive neighbors in both ray directions.
++    for direction in range(4):
++        rows = []
++        for i, (x, y) in enumerate(scaled):
++            key, position = ((y, x), (x, y), (x-y, x), (x+y, x))[direction]
++            rows.append((key, position, i))
++        rows.sort()
++        for a, b in zip(rows, rows[1:]):
++            if a[0] == b[0]:
++                add(a[2], b[2])
++    ordered = sorted((abs(scaled[i][0]-scaled[j][0])+abs(scaled[i][1]-scaled[j][1]), i, j)
++                     for i, j in edges)
++    parent = list(range(n))
++    def find(i):
++        while parent[i] != i:
++            parent[i] = parent[parent[i]]
++            i = parent[i]
++        return i
++    count = horizontal = vertical = weight = 0
++    for cost, i, j in ordered:
++        a, b = find(i), find(j)
++        if a == b:
++            continue
++        parent[a] = b
++        horizontal += abs(raw[i][0]-raw[j][0])
++        vertical += abs(raw[i][1]-raw[j][1])
++        weight += cost
++        count += 1
++        if count == n-1:
++            break
++    if count != n-1:
++        raise AssertionError('Octant spanning graph is disconnected')
++    return {'points': n, 'h_dbu': horizontal, 'v_dbu': vertical,
++            'weight_dbu': weight, 'candidate_edges': len(edges)}
++
++
++
++# Bound cached immutable geometry by BOTH coordinate membership and entry count.
++_TREE_RMST_MAX_POINTS = 32768
++_TREE_RMST_MAX_ENTRIES = 1024
++_TREE_RMST_CACHE = OrderedDict()
++_TREE_RMST_POINTS = 0
++_TREE_RMST_STATS = Counter()
++
++def _tree_reset_cache():
++    global _TREE_RMST_POINTS
++    _TREE_RMST_CACHE.clear()
++    _TREE_RMST_POINTS = 0
++    _TREE_RMST_STATS.clear()
++
++def _tree_rmst(points):
++    global _TREE_RMST_POINTS
++    # Validate before deduplication: True must never disappear as a duplicate1.
++    points = tuple(points)
++    if any(type(c) is not int for p in points for c in p):
++        raise ValueError("Integer nonboolean DBU coordinates required")
++    key = tuple(sorted(set(points)))
++    if key in _TREE_RMST_CACHE:
++        _TREE_RMST_STATS["hits"] += 1
++        _TREE_RMST_CACHE.move_to_end(key)
++        return dict(_TREE_RMST_CACHE[key])
++    _TREE_RMST_STATS["misses"] += 1
++    result = _rmst_uncached(key)
++    if len(key) <= _TREE_RMST_MAX_POINTS:
++        while _TREE_RMST_CACHE and (
++                _TREE_RMST_POINTS + len(key) > _TREE_RMST_MAX_POINTS
++                or len(_TREE_RMST_CACHE) >= _TREE_RMST_MAX_ENTRIES):
++            old, _value = _TREE_RMST_CACHE.popitem(last=False)
++            _TREE_RMST_POINTS -= len(old)
++        _TREE_RMST_CACHE[key] = result
++        _TREE_RMST_POINTS += len(key)
++    _TREE_RMST_STATS["peak_points"] = max(_TREE_RMST_STATS["peak_points"], _TREE_RMST_POINTS)
++    _TREE_RMST_STATS["peak_entries"] = max(_TREE_RMST_STATS["peak_entries"], len(_TREE_RMST_CACHE))
++    return dict(result)
++
++def branch_family_rmst(choice, dbu):
++    """Sum terminal Manhattan MSTs over the entire passive HBT family.
++
++    This is a geometry proxy, not obstacle-aware routed WL, RCX C or STA.
++    Integer DBU sums allow an exact dominance check without fitted wire-C.
++    """
++    positions = choice["positions"]
++    source = [(p["x"], p["y"]) for p in [choice["driver"]] + choice["local_sinks"]] + [positions[0]]
++    pointsets = [source, positions]
++    pointsets += [[(p["x"], p["y"]) for p in group] + [position]
++                  for group, position in zip(choice["groups"], positions[1:])]
++    rows = [_tree_rmst(points) for points in pointsets]
++    h = sum(row["h_dbu"] for row in rows)
++    v = sum(row["v_dbu"] for row in rows)
++    return {"whole_family_dbu": h + v, "whole_family_um": (h + v) / dbu,
++            "horizontal_dbu": h, "vertical_dbu": v,
++            "source_subnet_dbu": rows[0]["h_dbu"] + rows[0]["v_dbu"],
++            "borrowed_subnet_dbu": rows[1]["h_dbu"] + rows[1]["v_dbu"],
++            "leaf_subnets_dbu": sum(row["h_dbu"] + row["v_dbu"] for row in rows[2:])}
++
++def _tree_reference(choice):
++    ref = lambda p: {"inst": p["inst"], "pin": p["pin"]}
++    return {"positions": [list(point) for point in choice["positions"]],
++            "driver": ref(choice["driver"]),
++            "local_sinks": [ref(p) for p in choice["local_sinks"]],
++            "groups": [[ref(p) for p in group] for group in choice["groups"]]}
++
++def branch_family_hpwl(choice, dbu):
++    """Whole-family HPWL lower-bound proxy; not RCX capacitance or STA."""
++    positions = choice["positions"]
++    source_pins = [choice["driver"]] + choice["local_sinks"] + [{"x": positions[0][0], "y": positions[0][1]}]
++    upper_pins = [{"x": x, "y": y} for x, y in positions]
++    pinsets = [source_pins, upper_pins]
++    pinsets += [group + [{"x": point[0], "y": point[1]}]
++                for group, point in zip(choice["groups"], positions[1:])]
++    bounds = [bbox(pins) for pins in pinsets]
++    horizontal = sum(box[2] - box[0] for box in bounds) / dbu
++    vertical = sum(box[3] - box[1] for box in bounds) / dbu
++    spans = [box[2] - box[0] + box[3] - box[1] for box in bounds]
++    return {"whole_family_um": horizontal + vertical,
++            "horizontal_um": horizontal, "vertical_um": vertical,
++            "source_subnet_um": spans[0] / dbu,
++            "borrowed_subnet_um": spans[1] / dbu,
++            "leaf_subnets_um": sum(spans[2:]) / dbu}
++
++
++def branch_candidate(net, config, dbu, sites):
++    original = _fixed_branch_candidate(net, config, dbu, sites)
++    if not config["multi_branch_adaptive_groups"]:
++        return original
++    # A conservative decision requires an eligible original8 comparator.
++    if original is None:
++        return None
++    if len(net["pins"]) < config["multi_branch_min_fanout"] + 1:
++        return None
++    intended_groups = max(2, math.ceil((len(net["pins"]) - 1) / config["multi_branch_target_sinks"]))
++    fixed_by_count = {min(config["multi_branch_max_groups"], intended_groups): original}
++    choices = []
++    if original is not None:
++        choices.append((original, config["multi_branch_max_groups"], 0))
++    # Keep every original eligibility rule, geometric receiver guard and gain
++    # floor. Sixteen is an internal adaptive cap, not an ordinary config cap.
++    for index, cap in enumerate((4, 8, 16), 1):
++        if cap == config["multi_branch_max_groups"]:
++            continue
++        realized_count = min(cap, intended_groups)
++        if realized_count in fixed_by_count:
++            choice = fixed_by_count[realized_count]
++        else:
++            trial_config = dict(config, multi_branch_max_groups=cap)
++            choice = _fixed_branch_candidate(net, trial_config, dbu, sites)
++            fixed_by_count[realized_count] = choice
++        if choice is not None:
++            choices.append((choice, cap, index))
++    if not choices:
++        return None
++    if original is not None:
++        original_leaf_limit = max(len(group) for group in original["groups"])
++        choices = [row for row in choices
++                   if max(len(group) for group in row[0]["groups"]) <= original_leaf_limit]
++
++    original_tree = None
++    selected_tree = None
++    original_only = False
++    if config["multi_branch_tree_guard"]:
++        # HBTs are passive; an extra boundary is not a buffering benefit.
++        choices = [row for row in choices
++                   if len(row[0]["positions"]) <= len(original["positions"])]
++        original_only = len({id(row[0]) for row in choices}) == 1
++        if original_only:
++            # No new geometry is possible; exact original fallback is already
++            # dominant. Avoid doing a large source MST only to compare itself.
++            _TREE_RMST_STATS["original_only"] += 1
++        else:
++            tree_by_choice = {}
++            def choice_tree(item):
++                key = id(item)
++                if key not in tree_by_choice:
++                    tree_by_choice[key] = branch_family_rmst(item, dbu)
++                return tree_by_choice[key]
++            original_tree = choice_tree(original)
++            before = len(choices)
++            choices = [row for row in choices
++                       if choice_tree(row[0])["whole_family_dbu"] <= original_tree["whole_family_dbu"]]
++            _TREE_RMST_STATS["rejected_tree_choices"] += before - len(choices)
++
++    wire_by_choice = {}
++    def choice_wire(item):
++        key = id(item)
++        if key not in wire_by_choice:
++            wire_by_choice[key] = branch_family_hpwl(item, dbu)
++        return wire_by_choice[key]
++    baseline_wire = choice_wire(original) if original else None
++    choice, cap, _index = min(choices, key=lambda item: (
++        choice_wire(item[0])["whole_family_um"],
++        len(item[0]["positions"]), -item[0]["score"], item[2]))
++    # Metadata records the decision transparently; validation still reconstructs
++    # physical trees and every remote source-to-sink path independently.
++    choice["proxy"] = dict(choice["proxy"],
++        adaptive_group_cap=cap, adaptive_trial_group_caps=[row[1] for row in choices],
++        family_hpwl_proxy=choice_wire(choice),
++        original_group_family_hpwl_proxy=baseline_wire)
++    if config["multi_branch_tree_guard"]:
++        selected_tree = None if original_only else choice_tree(choice)
++        choice["proxy"] = dict(choice["proxy"], tree_guard_enabled=True,
++            tree_guard_original_only=original_only,
++            family_rmst_proxy=selected_tree,
++            original_group_family_rmst_proxy=original_tree,
++            tree_guard_hbt_limit=len(original["positions"]),
++            tree_guard_reference=_tree_reference(original))
++    return choice
++
+ def build_branch_entry(net, choice, hnames, dbu, size):
+     groups, points = choice["groups"], choice["positions"]
+     names = [f"{net['name']}__MLS__S{i}__{'TOP' if i == 1 else 'BOT'}"
+@@ -545,6 +813,7 @@
+ 
+ 
+ def plan_design(manifest, config=None):
++    _tree_reset_cache()
+     config = config_values(config)
+     original_manifest = manifest
+     from hbt_optimizer import optimize_hbts
+--- a/submission/flow_scripts/scripts_3D/mls_config.json
++++ b/submission/flow_scripts/scripts_3D/mls_config.json
+@@ -20,5 +20,7 @@
+   "relocation_radius": 2,
+   "relocation_max_moves": 65536,
+   "relocation_min_improvement_um": 0.1,
+-  "multi_branch_enabled": true
++  "multi_branch_enabled": true,
++  "multi_branch_adaptive_groups": true,
++  "multi_branch_tree_guard": true
+ }

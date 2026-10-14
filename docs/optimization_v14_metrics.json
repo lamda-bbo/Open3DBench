@@ -1,0 +1,198 @@
+{
+  "status": "VERIFIED_EXPERIMENTAL_MEASUREMENTS",
+  "packages": {
+    "stable": {
+      "path": "submission_v13.zip",
+      "sha256": "b75a9fe94945db3a8e51f3091b57702c992509d150e46e12cb74d3e3b416de80",
+      "tracked_in_git": false
+    },
+    "experimental": {
+      "path": "submission_v14_tree_guard_experimental.zip",
+      "sha256": "46dbeb3f1bcc7711ffda373b1d4f6b83ffd385da541a515ab96ecdf822bfd693",
+      "members": 69,
+      "tracked_in_git": false
+    }
+  },
+  "experimental_source_patch": "experiments/v14_tree_guard.patch",
+  "patch_sha256": "77f6282dac921278da7876660f7127958ee8ad4aeb8fd28b4eee3190d6864878",
+  "known_official_score": 23.00806162648646,
+  "new_official_score": null,
+  "score25_verified": false,
+  "all8_legality_and_policy_runtime_output_identity": true,
+  "fresh_full_quality_cases": [
+    "bp",
+    "bp_be"
+  ],
+  "quality": [
+    {
+      "case": "bp",
+      "candidate_metrics": {
+        "case": "bp",
+        "drc": 13448,
+        "drt_wirelength_um": 7882418.93,
+        "evaluator_runtime_seconds": 9293.0,
+        "evaluator_schema_version": 2,
+        "guide_source": "submission_odb",
+        "hbt_capacity": 19600,
+        "hbt_count": 4231,
+        "hbt_excess_count": 0,
+        "hbt_free_limit": 5880,
+        "hbt_grid_origin_x_dbu": 11990,
+        "hbt_grid_origin_y_dbu": 11940,
+        "hbt_pitch_dbu": 12800,
+        "hbt_pitch_um": 6.4,
+        "legal": true,
+        "legality_error_count": 0,
+        "tns_ns": -159108,
+        "wns_ns": -22.538
+      },
+      "reference_label": "current384_historical12",
+      "reference_threads": 12,
+      "candidate_threads": 8,
+      "metric_changes": {
+        "tns_ns": {
+          "reference": -162678,
+          "candidate": -159108,
+          "candidate_minus_reference": 3570,
+          "magnitude_reduction_percent": 2.1945192343156394,
+          "direction": "improved"
+        },
+        "wns_ns": {
+          "reference": -22.3057,
+          "candidate": -22.538,
+          "candidate_minus_reference": -0.23229999999999862,
+          "magnitude_reduction_percent": -1.0414378387586964,
+          "direction": "regressed"
+        },
+        "drc": {
+          "reference": 13754,
+          "candidate": 13448,
+          "candidate_minus_reference": -306,
+          "magnitude_reduction_percent": 2.2248073287770787,
+          "direction": "improved"
+        },
+        "drt_wirelength_um": {
+          "reference": 7876304.96,
+          "candidate": 7882418.93,
+          "candidate_minus_reference": 6113.969999999739,
+          "magnitude_reduction_percent": -0.07762485113322892,
+          "direction": "regressed"
+        },
+        "hbt_count": {
+          "reference": 4231,
+          "candidate": 4231,
+          "candidate_minus_reference": 0,
+          "magnitude_reduction_percent": 0.0,
+          "direction": "unchanged"
+        },
+        "hbt_excess_count": {
+          "reference": 0,
+          "candidate": 0,
+          "candidate_minus_reference": 0,
+          "magnitude_reduction_percent": null,
+          "direction": "unchanged"
+        }
+      },
+      "quality_comparison_sha256": "67919a39b675f5e6ce2588a67928f9c82a3903262b474335c5b273d9cd2fd0e4",
+      "exact_hybrid_quality_input_identity": true,
+      "artifact_recovery_used": false
+    },
+    {
+      "case": "bp_be",
+      "candidate_metrics": {
+        "case": "bp_be",
+        "drc": 4701,
+        "drt_wirelength_um": 2322785.29,
+        "evaluator_runtime_seconds": 2294.0,
+        "evaluator_schema_version": 2,
+        "guide_source": "submission_odb",
+        "hbt_capacity": 7254,
+        "hbt_count": 1489,
+        "hbt_excess_count": 0,
+        "hbt_free_limit": 2176,
+        "hbt_grid_origin_x_dbu": 11990,
+        "hbt_grid_origin_y_dbu": 11940,
+        "hbt_pitch_dbu": 12800,
+        "hbt_pitch_um": 6.4,
+        "legal": true,
+        "legality_error_count": 0,
+        "tns_ns": -6624.01,
+        "wns_ns": -3.80213
+      },
+      "reference_label": "current384_historical_matched8",
+      "reference_threads": 8,
+      "candidate_threads": 8,
+      "metric_changes": {
+        "tns_ns": {
+          "reference": -6647.13,
+          "candidate": -6624.01,
+          "candidate_minus_reference": 23.11999999999989,
+          "magnitude_reduction_percent": 0.3478192844129757,
+          "direction": "improved"
+        },
+        "wns_ns": {
+          "reference": -3.86976,
+          "candidate": -3.80213,
+          "candidate_minus_reference": 0.06762999999999986,
+          "magnitude_reduction_percent": 1.7476536012569266,
+          "direction": "improved"
+        },
+        "drc": {
+          "reference": 4709,
+          "candidate": 4701,
+          "candidate_minus_reference": -8,
+          "magnitude_reduction_percent": 0.16988744956466517,
+          "direction": "improved"
+        },
+        "drt_wirelength_um": {
+          "reference": 2324084.85,
+          "candidate": 2322785.29,
+          "candidate_minus_reference": -1299.5600000000559,
+          "magnitude_reduction_percent": 0.05591706344112435,
+          "direction": "improved"
+        },
+        "hbt_count": {
+          "reference": 1488,
+          "candidate": 1489,
+          "candidate_minus_reference": 1,
+          "magnitude_reduction_percent": -0.06720430107527431,
+          "direction": "regressed"
+        },
+        "hbt_excess_count": {
+          "reference": 0,
+          "candidate": 0,
+          "candidate_minus_reference": 0,
+          "magnitude_reduction_percent": null,
+          "direction": "unchanged"
+        }
+      },
+      "quality_comparison_sha256": "c07a88ace48c7030b54ac1a9089fb8bcfdae3ec21626831d6023513ffaf2d913",
+      "exact_hybrid_quality_input_identity": true,
+      "artifact_recovery_used": true
+    }
+  ],
+  "post_restart_offline_checks": {
+    "published_zip_regressions": 44,
+    "geometry_kernel_checks": 4,
+    "failures": 0,
+    "skipped": 0
+  },
+  "native_binary_sha256": "cab98f6cb51b7e9ea1bd7b2c37141963bd95573a4d17fbfec3881bbad81d21f1",
+  "native_build_proof_sha256": "1c3a90e1afc937ab70c44369b0e6eb9f735d9d2b083f28eee7c2a51008888df2",
+  "local_release_record_sha256": "dcb391e21f5827836ac569914b62b093fad96f66748aa83df8760e133cb07818",
+  "scope_limitations": [
+    "BP reference12threads versus candidate8threads; BE matched8 historical comparison.",
+    "BP TNS/DRC improve while WNS and wirelength regress.",
+    "BE uses preserved original9 evidence plus exact inherited sourceODB, exactly regenerated canonicalDEF and captured original finalSPEF; prior failures retained.",
+    "Official three missing-inputDEF failures are not established as fixed.",
+    "User requested remaining work without Docker after access permission was unavailable."
+  ],
+  "raw_evidence_storage": "Full local EDA logs, databases and retained compressed evidence are not included in this GitHub summary.",
+  "package_storage": "Local validation artifacts only; the v13 and v14 ZIP packages are not included in this GitHub change.",
+  "experimental_source_patch_targets": [
+    "OpenROAD-GRT/flow_scripts/scripts_3D/mls_planner.py",
+    "OpenROAD-GRT/flow_scripts/scripts_3D/mls_config.json",
+    "submission/flow_scripts/scripts_3D/mls_planner.py",
+    "submission/flow_scripts/scripts_3D/mls_config.json"
+  ]
+}

@@ -9,6 +9,72 @@ from functools import lru_cache
 INDEX_THRESHOLD = 64
 _METAL_RE = re.compile(r"^metal(\d+)$", re.I)
 _LEAF_SIZE = 12
+_GRID_CELL_SIZE = 16800
+_GRID_MEMBERSHIPS_PER_RECT = 16
+
+
+class _RectGrid:
+    """Bounded sparse cells that only produce exact intersection candidates.
+
+    Typical route guides span few cells. A complete membership-count pass
+    precedes construction, so a large rectangle cannot expand this index
+    beyond a fixed multiple of its input size.
+    """
+
+    @classmethod
+    def try_build(cls, rects, layer_bits):
+        memberships = 0
+        limit = len(rects) * _GRID_MEMBERSHIPS_PER_RECT
+        for rect in rects:
+            # Keep the original hierarchy for geometry outside the integer,
+            # ordered boxes emitted by the guide writer.
+            if (any(type(value) is not int for value in
+                    (rect.x1, rect.y1, rect.x2, rect.y2))
+                    or rect.x1 > rect.x2 or rect.y1 > rect.y2):
+                return None
+            memberships += ((rect.x2 // _GRID_CELL_SIZE - rect.x1 // _GRID_CELL_SIZE + 1)
+                            * (rect.y2 // _GRID_CELL_SIZE - rect.y1 // _GRID_CELL_SIZE + 1))
+            if memberships > limit:
+                return None
+        return cls(rects, layer_bits)
+
+    def __init__(self, rects, layer_bits):
+        self.rects = rects
+        self.layer_bits = layer_bits
+        self._bit_values = tuple(dict.fromkeys(layer_bits))
+        self._cells = {}
+        for i, rect in enumerate(rects):
+            for x in range(rect.x1 // _GRID_CELL_SIZE, rect.x2 // _GRID_CELL_SIZE + 1):
+                for y in range(rect.y1 // _GRID_CELL_SIZE, rect.y2 // _GRID_CELL_SIZE + 1):
+                    self._cells.setdefault((x, y, layer_bits[i]), []).append(i)
+
+    def intersections(self, x1, y1, x2, y2, allowed=0, after=-1):
+        rects = self.rects
+        if any(type(value) is not int for value in (x1, y1, x2, y2)):
+            candidates = range(len(rects))
+        else:
+            # A negative coverage margin inverts the query. Enumerate a
+            # conservative enclosing range, then retain the exact old test.
+            xlo, xhi = min(x1, x2) // _GRID_CELL_SIZE, max(x1, x2) // _GRID_CELL_SIZE
+            ylo, yhi = min(y1, y2) // _GRID_CELL_SIZE, max(y1, y2) // _GRID_CELL_SIZE
+            if (xhi - xlo + 1) * (yhi - ylo + 1) > max(512, len(rects) * 8):
+                # A huge pin margin must not expand the sparse query range.
+                candidates = range(len(rects))
+            else:
+                bits = [bit for bit in self._bit_values if not allowed or allowed & bit]
+                candidates = set()
+                for x in range(xlo, xhi + 1):
+                    for y in range(ylo, yhi + 1):
+                        for bit in bits:
+                            for i in self._cells.get((x, y, bit), ()):
+                                if i > after:
+                                    candidates.add(i)
+        for i in candidates:
+            if i <= after or (allowed and not (allowed & self.layer_bits[i])):
+                continue
+            rect = rects[i]
+            if not (rect.x2 < x1 or x2 < rect.x1 or rect.y2 < y1 or y2 < rect.y1):
+                yield i
 
 
 class _RectIndex:
@@ -71,10 +137,10 @@ class _RectIndex:
 
 
 class GuideSpatialIndex:
-    """Share one exact spatial tree between pin coverage and guide neighbors.
+    """Share one exact spatial index between pin coverage and guide neighbors.
 
-    Node masks prune impossible layers and node maxima prune earlier guide
-    indices. Neither filter changes coordinate tolerances or returned order.
+    Sparse cells accelerate bounded guide boxes; the hierarchy handles large
+    or unusual geometry. Neither changes coordinate tolerances or order.
     """
 
     def __init__(self, rects):
@@ -86,10 +152,18 @@ class GuideSpatialIndex:
             if key not in self._bits:
                 self._bits[key] = 1 << len(self._bits)
         self._layer_bits = [self._bits[key] for key in self._keys]
+        self._neighbor_bits = {}
+        for key, bit in self._bits.items():
+            if key[0] == "metal":
+                bit |= (self._bits.get(("metal", key[1] - 1), 0)
+                        | self._bits.get(("metal", key[1] + 1), 0))
+            self._neighbor_bits[key] = bit
 
     def _ensure_all(self):
         if self._all is None:
-            self._all = _RectIndex(self.rects, range(len(self.rects)), self._layer_bits)
+            self._all = _RectGrid.try_build(self.rects, self._layer_bits)
+            if self._all is None:
+                self._all = _RectIndex(self.rects, range(len(self.rects)), self._layer_bits)
 
     @staticmethod
     @lru_cache(maxsize=128)
@@ -109,13 +183,7 @@ class GuideSpatialIndex:
     def later_neighbors(self, i):
         self._ensure_all()
         rect = self.rects[i]
-        key = self._keys[i]
-        keys = [key]
-        if key[0] == "metal":
-            keys.extend((("metal", key[1] - 1), ("metal", key[1] + 1)))
-        allowed = 0
-        for layer_key in keys:
-            allowed |= self._bits.get(layer_key, 0)
+        allowed = self._neighbor_bits[self._keys[i]]
         # Preserve the old nested-loop union order and component root IDs.
         return sorted(self._all.intersections(
             rect.x1 - 1, rect.y1 - 1, rect.x2 + 1, rect.y2 + 1, allowed, i))

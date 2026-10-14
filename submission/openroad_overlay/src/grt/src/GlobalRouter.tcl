@@ -1,6 +1,14 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2019-2025, The OpenROAD Authors
 
+sta::define_cmd_args "export_prepared_routing_metadata" { filename }
+
+proc export_prepared_routing_metadata { args } {
+  sta::parse_key_args "export_prepared_routing_metadata" args keys {} flags {}
+  sta::check_argc_eq1 "export_prepared_routing_metadata" $args
+  grt::export_prepared_routing_metadata [lindex $args 0]
+}
+
 sta::define_cmd_args "set_global_routing_layer_adjustment" { layer adj }
 
 proc set_global_routing_layer_adjustment { args } {

@@ -152,6 +152,66 @@ class GuideSpatialIndexTest(unittest.TestCase):
         self.assertEqual(guide_component_ids(rects, index),
                          (list(range(len(rects))), list(range(len(rects)))))
 
+    def test_cell_boundaries_and_negative_coordinates(self):
+        rects = []
+        for i in range(-20, 20):
+            x = i * 16800
+            rects.extend([GuideRect("metal2", x - 4200, -16800, x, 0),
+                          GuideRect("METAL02", x + 1, 0, x + 4200, 16800),
+                          GuideRect("metal3", x, 0, x, 0)])
+        self.assert_partitions(rects)
+        index = GuideSpatialIndex(rects)
+        for x in (-336001, -16801, -16800, -1, 0, 1, 16799, 16800, 336001):
+            for y in (-16801, -16800, -1, 0, 1, 16800, 16801):
+                for margin in (-1, 0, 1, 2100):
+                    self.assertEqual(index.first_covering_rect(x, y, margin),
+                                     covering_oracle(rects, x, y, margin))
+
+    def test_extreme_rectangles_and_bounded_wide_queries(self):
+        extent = 10 ** 60
+        sparse = [GuideRect("metal2" if i % 2 else "metal3", i * 4200, 0,
+                            i * 4200 + 100, 100) for i in range(90)]
+        # One enormous box must not allocate every crossed cell. The same
+        # oracle checks a huge query on ordinary sparse rectangles as well.
+        for rects in (sparse, [GuideRect("metal2", -extent, -extent, extent, extent)] + sparse):
+            self.assert_partitions(rects)
+            index = GuideSpatialIndex(rects)
+            for x, y, margin in [(0, 0, extent), (extent, extent, extent),
+                                 (-extent, -extent, extent), (extent, extent, -extent)]:
+                self.assertEqual(index.first_covering_rect(x, y, margin),
+                                 covering_oracle(rects, x, y, margin))
+
+    def test_noninteger_boxes_and_coverage_queries(self):
+        ordinary = [GuideRect("metal2", i * 4200, 0, i * 4200 + 100, 100)
+                    for i in range(90)]
+        for rects in (ordinary, [GuideRect("metal3", -0.5, -0.5, 100.5, 100.5)] + ordinary):
+            self.assert_partitions(rects)
+            index = GuideSpatialIndex(rects)
+            for x, y, margin in [(0.5, 0.5, 0), (-0.5, -0.5, 0.25),
+                                 (100.25, 100.25, 0.5), (100.25, 100.25, -0.25)]:
+                self.assertEqual(index.first_covering_rect(x, y, margin),
+                                 covering_oracle(rects, x, y, margin))
+
+    def test_sparse_random_geometry_and_large_pin_margins(self):
+        rng = random.Random(20261012)
+        layers = ["metal2", "METAL02", "metal3", "metal4", "metal11", "via1"]
+        for trial in range(12):
+            rects = []
+            for _ in range(100):
+                x, y = rng.randrange(-200, 201) * 4200, rng.randrange(-200, 201) * 4200
+                rects.append(GuideRect(rng.choice(layers), x, y,
+                                       x + rng.randrange(1, 8) * 4200,
+                                       y + rng.randrange(1, 8) * 4200))
+            rng.shuffle(rects)
+            with self.subTest(trial=trial):
+                self.assert_partitions(rects)
+                index = GuideSpatialIndex(rects)
+                for _ in range(20):
+                    x, y = rng.randrange(-220, 221) * 4200, rng.randrange(-220, 221) * 4200
+                    margin = rng.choice([-1, 0, 1, 2100, 10 ** 30])
+                    self.assertEqual(index.first_covering_rect(x, y, margin),
+                                     covering_oracle(rects, x, y, margin))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from die_net_common import iter_nets
 from guide_spatial_index import GuideSpatialIndex, INDEX_THRESHOLD
+from prepared_metadata import read_prepared_metadata
 
 GCELL_STEP = 4200
 BOTTOM_DIE_MAX_LAYER = 10
@@ -421,6 +422,8 @@ def run_diagnosis(
     top_k: int,
     split_only: bool = False,
     def_path: Path | None = None,
+    prepared_metadata: Path | None = None,
+    prepared_metadata_sha256: str | None = None,
 ) -> list[NetDiag]:
     """Run full diagnosis for one MoL results directory."""
     if def_path is None:
@@ -431,7 +434,12 @@ def run_diagnosis(
 
     guides = parse_guides(guide_path, split_only)
     upper_guides = parse_guides(upper_path, split_only) if upper_path.exists() else {}
-    net_pins = build_net_pins(def_path, split_only)
+    if prepared_metadata is not None:
+        if not split_only:
+            raise ValueError('Prepared routing metadata supports the complete strict split-net check only')
+        net_pins = read_prepared_metadata(prepared_metadata, prepared_metadata_sha256).split_net_pins
+    else:
+        net_pins = build_net_pins(def_path, split_only)
     grt_missing = parse_grt_missing(log_path)
     margin = GCELL_STEP // 2
 
@@ -515,6 +523,8 @@ def main() -> int:
         help="Prepared DEF to diagnose (defaults to results_dir/4_1_cts.def)",
     )
     parser.add_argument("--top", type=int, default=25, help="Top candidates to show")
+    parser.add_argument('--prepared-metadata', type=Path)
+    parser.add_argument('--prepared-metadata-sha256')
     parser.add_argument(
         "--max-cc-rects",
         type=int,
@@ -527,6 +537,8 @@ def main() -> int:
         help="Fail if any HBT split net has illegal layers or disconnected pin guides",
     )
     args = parser.parse_args()
+    if args.prepared_metadata_sha256 is not None and args.prepared_metadata is None:
+        parser.error('--prepared-metadata-sha256 requires --prepared-metadata')
 
     top_k = 1000000 if args.strict else args.top
     diags = run_diagnosis(
@@ -535,6 +547,8 @@ def main() -> int:
         top_k,
         split_only=args.strict,
         def_path=args.def_file,
+        prepared_metadata=args.prepared_metadata,
+        prepared_metadata_sha256=args.prepared_metadata_sha256,
     )
     shown = diags[: args.top]
     print_report(str(args.results_dir), shown)

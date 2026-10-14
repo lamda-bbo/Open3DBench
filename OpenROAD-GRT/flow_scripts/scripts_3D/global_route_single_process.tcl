@@ -69,18 +69,46 @@ puts "GRT_STAGE load_design_ms=[expr {[clock milliseconds] - $fused_started}]"
 set fused_script_dir [file dirname [file normalize [info script]]]
 source $fused_script_dir/routing_capacity.tcl
 set fused_input_def $::env(RESULTS_DIR)/4_1_cts.def
+set fused_metadata_args {}
+set fused_metadata_mode [expr {[info exists ::env(GRT_PREPARED_METADATA)] ? $::env(GRT_PREPARED_METADATA) : "auto"}]
+if {$fused_metadata_mode ni {auto native def}} { error "GRT_PREPARED_METADATA must be auto, native, or def" }
 unset -nocomplain ::grt_precomputed_layer_hints
 if {[info exists ::env(GRT_PREPARE_TCL)] && $::env(GRT_PREPARE_TCL) ne ""} {
   fused_stage prepare {source [file normalize $::env(GRT_PREPARE_TCL)]}
   set fused_input_def $::env(RESULTS_DIR)/4_grt_input.def
+  if {$fused_metadata_mode ne "def" && [info commands ::grt::export_prepared_routing_metadata] ne ""} {
+    set fused_metadata_path $::env(RESULTS_DIR)/prepared_routing_metadata.json
+    fused_stage prepared_metadata {
+      source $fused_script_dir/prepared_metadata.tcl
+      prepared_metadata::export $fused_metadata_path
+      set fused_metadata_probe [exec python3 $fused_script_dir/prepared_metadata.py --probe $fused_metadata_path]
+      if {[lindex $fused_metadata_probe 0] eq "native"} {
+        set fused_metadata_sha256 [lindex $fused_metadata_probe 1]
+        set fused_metadata_args [list --prepared-metadata $fused_metadata_path --prepared-metadata-sha256 $fused_metadata_sha256]
+        puts "GRT_PREPARED_METADATA native sha256=$fused_metadata_sha256"
+      } elseif {[lindex $fused_metadata_probe 0] eq "fallback"} {
+        if {$fused_metadata_mode eq "native"} { error "Native prepared metadata unsupported: [lindex $fused_metadata_probe 1]" }
+        puts "GRT_PREPARED_METADATA def reason=[lindex $fused_metadata_probe 1]"
+      } else {
+        error "Malformed native prepared metadata probe"
+      }
+    }
+  } elseif {$fused_metadata_mode eq "native"} {
+    error "Native prepared metadata exporter unavailable"
+  } else {
+    puts "GRT_PREPARED_METADATA def reason=disabled_or_unavailable"
+  }
   fused_stage write_prepared {
     # The single process keeps this prepared database live for both passes.
     # Preserve the optional checkpoint for debugging, without serializing it
-    # in the normal path. Classification and strict checks still use the DEF.
+    # in the normal path. The native path supplies the exact writer/parser
+    # metadata to both validators; explicit DEF mode remains available.
     if {[info exists ::env(GRT_SAVE_CHECKPOINTS)] && $::env(GRT_SAVE_CHECKPOINTS) eq "1"} {
       write_db $::env(RESULTS_DIR)/4_grt_input.odb
+      write_def $fused_input_def
+    } elseif {[llength $fused_metadata_args] == 0} {
+      write_def $fused_input_def
     }
-    write_def $fused_input_def
   }
 }
 set ::env(GRT_INPUT_DEF) $fused_input_def
@@ -134,7 +162,7 @@ set fused_list_dir $::env(RESULTS_DIR)/die_net_lists
 set fused_classification_cache $::env(RESULTS_DIR)/.net_classification.json
 fused_stage classify_nets {
   exec python3 $fused_script_dir/export_die_net_lists.py $fused_input_def $fused_list_dir \
-    --classification-cache $fused_classification_cache
+    --classification-cache $fused_classification_cache {*}$fused_metadata_args
 }
 set fused_block [ord::get_db_block]
 proc fused_read_nets {path} {
@@ -301,18 +329,72 @@ fused_stage route_upper {
 }
 
 set fused_guide $::env(RESULTS_DIR)/route.guide
+# Only publish a final ODB after all checks and finalization have succeeded.
+set fused_output $::env(RESULTS_DIR)/5_1_grt.odb
+set fused_output_pending $::env(RESULTS_DIR)/.5_1_grt.[pid].tmp.odb
+set fused_marker $::env(RESULTS_DIR)/.grt_finalize_complete
+set fused_marker_pending ${fused_marker}.[pid].tmp
+file delete -force $fused_output $fused_output_pending $fused_marker $fused_marker_pending
 fused_stage merge_guides {
   exec python3 $fused_script_dir/merge_route_guides.py $fused_guide $fused_bottom_guide $fused_upper_guide
 }
+set fused_check_channel ""
+set fused_check_stderr $::env(RESULTS_DIR)/.guide_checks.[pid].stderr
+proc fused_join_guide_checks {channel stderr_path} {
+  # Reading to EOF drains arbitrarily large stdout reports; close waits for the
+  # child and propagates its exit status. Separate stderr retains the original
+  # exec contract: any stderr output fails validation even with exit code zero.
+  try {
+    try {
+      set report [read $channel]
+    } on error {message options} {
+      catch {close $channel}
+      return -options $options $message
+    }
+    set failed [catch {close $channel} message options]
+    set fp [open $stderr_path r]
+    try {
+      set stderr_report [read $fp]
+    } finally {
+      close $fp
+    }
+    puts $report
+    if {$stderr_report ne ""} { puts stderr $stderr_report }
+    if {$failed} { return -options $options $message }
+    if {$stderr_report ne ""} { error "Guide validators wrote stderr: $stderr_report" }
+  } finally {
+    file delete -force $stderr_path
+  }
+}
 if {![info exists ::env(VALIDATE_DIE_GUIDES)] || $::env(VALIDATE_DIE_GUIDES) ni {"" "0"}} {
   set fused_max_cc [expr {[info exists ::env(DIE_GUIDE_MAX_CC_RECTS)] ? $::env(DIE_GUIDE_MAX_CC_RECTS) : 5000}]
-  # The router is idle here. Independent read-only checks can share two of
-  # its reserved cores; either failure still prevents ODB publication.
-  puts [exec python3 $fused_script_dir/validate_die_guides.py $::env(RESULTS_DIR) \
+  set fused_check_command [list python3 $fused_script_dir/validate_die_guides.py $::env(RESULTS_DIR) \
     --def-file $fused_input_def --classification-cache $fused_classification_cache \
     --top 50 --max-cc-rects $fused_max_cc]
+  if {[info exists fused_metadata_args]} { lappend fused_check_command {*}$fused_metadata_args }
+  set fused_check_mode [expr {[info exists ::env(GRT_CHECK_MODE)] ? $::env(GRT_CHECK_MODE) : "parallel"}]
+  set fused_check_cores [expr {[info exists ::env(NUM_CORES)] ? $::env(NUM_CORES) : "2"}]
+  set fused_check_core_count 0
+  if {[regexp {^[+-]?[0-9]+$} [string trim $fused_check_cores]]} {
+    scan [string trim $fused_check_cores] %d fused_check_core_count
+  }
+  if {$fused_check_mode eq "parallel" && $fused_check_core_count >= 3} {
+    # The prepared DEF, classification cache and merged/upper guides are now
+    # immutable; the optional grt_finalize.log is unchanged by this script.
+    # Their two read-only checks can overlap ODB restoration and
+    # serialization. The channel is always joined before final publication.
+    set fused_check_channel [open [list | {*}$fused_check_command 2> $fused_check_stderr] r]
+    puts "GRT_CHECK_SCHEDULE overlap"
+  } else {
+    # Preserve explicit serial mode and budgets below the three cores needed
+    # by the finalizer plus both checkers. The helper still validates malformed
+    # mode/core settings and applies its original single-core fallback.
+    puts [exec {*}$fused_check_command]
+    puts "GRT_CHECK_SCHEDULE before_finalize"
+  }
 }
 set fused_started [clock milliseconds]
+set fused_finalize_failed [catch {
 # Restore exactly the track patterns and net uses saved before routing. Native
 # OpenROAD cannot read_db over a populated design, so restoration uses OpenDB
 # setters and recreates each grid immediately to retain its original table id.
@@ -345,12 +427,36 @@ foreach entry $fused_layer_adjustments {
 }
 # The fixed evaluator reads the original SDC and extracts its own parasitics.
 # Publishing the routed ODB does not require a separate STA/ref-clock pass.
-set fused_output $::env(RESULTS_DIR)/5_1_grt.odb
-fused_stage write_db {write_db $fused_output}
-set fused_marker $::env(RESULTS_DIR)/.grt_finalize_complete
-set fp [open ${fused_marker}.[pid].tmp w]
-puts $fp "odb_size=[file size $fused_output]"
-close $fp
-file rename -force ${fused_marker}.[pid].tmp $fused_marker
+fused_stage write_db {write_db $fused_output_pending}
+} fused_finalize_message fused_finalize_options]
+# Always reap the validators, including when read_guides/write_db failed. A
+# failed check cannot leave a final ODB or a completion marker behind.
+set fused_check_failed 0
+if {$fused_check_channel ne ""} {
+  set fused_check_failed [catch {
+    fused_stage check_guides_wait {fused_join_guide_checks $fused_check_channel $fused_check_stderr}
+  } fused_check_message fused_check_options]
+}
+if {$fused_finalize_failed || $fused_check_failed} {
+  file delete -force $fused_output_pending
+  if {$fused_finalize_failed} {
+    if {$fused_check_failed} {
+      append fused_finalize_message "\nGuide validation also failed: $fused_check_message"
+      dict append fused_finalize_options -errorinfo "\nGuide validation also failed: $fused_check_message"
+    }
+    return -options $fused_finalize_options $fused_finalize_message
+  }
+  return -options $fused_check_options $fused_check_message
+}
+try {
+  file rename -force $fused_output_pending $fused_output
+  set fp [open $fused_marker_pending w]
+  puts $fp "odb_size=[file size $fused_output]"
+  close $fp
+  file rename -force $fused_marker_pending $fused_marker
+} on error {message options} {
+  file delete -force $fused_output_pending $fused_output $fused_marker_pending $fused_marker
+  return -options $options $message
+}
 puts "GRT_STAGE finalize_ms=[expr {[clock milliseconds] - $fused_started}]"
 puts "Fused die-by-die GRT complete: $fused_output"

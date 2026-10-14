@@ -15,6 +15,7 @@ from die_net_common import (
     def_sha256,
     write_classification_cache,
 )
+from prepared_metadata import read_prepared_metadata
 
 
 def write_list(path: Path, names: list[str]) -> None:
@@ -37,27 +38,32 @@ def main() -> int:
     parser.add_argument("def_path", type=Path)
     parser.add_argument("output_dir", type=Path, nargs="?")
     parser.add_argument("--classification-cache", type=Path)
+    parser.add_argument("--prepared-metadata", type=Path)
+    parser.add_argument("--prepared-metadata-sha256")
     args = parser.parse_args()
     def_path = args.def_path
     output_dir = args.output_dir or def_path.parent / "die_net_lists"
-    input_digest = def_sha256(def_path) if args.classification_cache is not None else None
-    inst_die_map = parse_inst_die_map(def_path)
-    pin_die_map = parse_pin_die_map(def_path)
     # Keep compact metadata rather than every pin connection in the design.
     # Retaining the final classification per name also preserves the original
     # behavior for repeated DEF net names.
     nets: list[tuple[str, int]] = []
     classification: dict[str, str] = {}
-    for name, pins in iter_net_connections(def_path):
-        nets.append((name, len(pins)))
-        classification[name] = classify_net_connections(
-            name, pins, inst_die_map, pin_die_map
-        )
-    if args.classification_cache is not None:
-        write_classification_cache(
-            args.classification_cache, def_path, classification,
-            expected_def_sha256=input_digest,
-        )
+    if args.prepared_metadata is not None:
+        metadata = read_prepared_metadata(args.prepared_metadata, args.prepared_metadata_sha256)
+        nets = [(name, count) for name, label, count in metadata.nets]
+        classification = metadata.classification()
+    else:
+        if args.prepared_metadata_sha256 is not None:
+            parser.error('--prepared-metadata-sha256 requires --prepared-metadata')
+        input_digest = def_sha256(def_path) if args.classification_cache is not None else None
+        inst_die_map = parse_inst_die_map(def_path)
+        pin_die_map = parse_pin_die_map(def_path)
+        for name, pins in iter_net_connections(def_path):
+            nets.append((name, len(pins)))
+            classification[name] = classify_net_connections(name, pins, inst_die_map, pin_die_map)
+        if args.classification_cache is not None:
+            write_classification_cache(args.classification_cache, def_path, classification,
+                                       expected_def_sha256=input_digest)
 
     bottom: list[str] = []
     upper: list[str] = []

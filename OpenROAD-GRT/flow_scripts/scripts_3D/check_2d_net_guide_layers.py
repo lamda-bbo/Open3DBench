@@ -17,6 +17,7 @@ from die_net_common import (
     parse_pin_die_map,
     read_classification_cache,
 )
+from prepared_metadata import read_prepared_metadata
 
 BOTTOM_MAX = 10
 UPPER_MIN = 11
@@ -83,8 +84,11 @@ def check(
     guide_path: Path,
     def_path: Path,
     classification_cache: Path | None = None,
+    prepared_metadata: Path | None = None,
+    prepared_metadata_sha256: str | None = None,
 ) -> tuple[dict[str, str], dict[str, list[int]]]:
-    net_class = classify_net_from_def(def_path, classification_cache)
+    net_class = (read_prepared_metadata(prepared_metadata, prepared_metadata_sha256).classification()
+                 if prepared_metadata is not None else classify_net_from_def(def_path, classification_cache))
     violations: dict[str, list[int]] = defaultdict(list)
 
     for net, layer in parse_guide(guide_path):
@@ -100,8 +104,13 @@ def main() -> None:
     parser.add_argument("guide_path", type=Path)
     parser.add_argument("def_path", type=Path)
     parser.add_argument("--classification-cache", type=Path)
+    parser.add_argument("--prepared-metadata", type=Path)
+    parser.add_argument("--prepared-metadata-sha256")
     args = parser.parse_args()
-    net_class, violations = check(args.guide_path, args.def_path, args.classification_cache)
+    if args.prepared_metadata_sha256 is not None and args.prepared_metadata is None:
+        parser.error('--prepared-metadata-sha256 requires --prepared-metadata')
+    net_class, violations = check(args.guide_path, args.def_path, args.classification_cache,
+                                  args.prepared_metadata, args.prepared_metadata_sha256)
 
     n2b = sum(1 for c in net_class.values() if c == "2d_bottom")
     n2u = sum(1 for c in net_class.values() if c == "2d_upper")

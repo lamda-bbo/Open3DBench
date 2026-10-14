@@ -1,3 +1,35 @@
+# 第十三版：直接复用准备后的数据库检查信息
+
+本版以 v12 为基线，沿用 MLS/HBT、选层与容量策略。新原生接口从准备后的 OpenDB 导出分类与严格连通检查所需信息，省去中间 DEF 写入及重复解析；不支持的特殊 DEF 语法自动回退，错误或哈希不一致仍阻止发布。输入 master 扫描只读至 COMPONENTS 结束，输入摘要改为流式计算。
+
+全八例新旧提交 ODB、guide、MLS 计划和官方 canonical DEF/guide/ODB 逐字节一致，官方合法性通过；222 项生产、7 项支持及 14 项验证器篡改/留存测试通过。13 次真实原生导出与原 DEF writer/parser 对照通过，并确认数据库未改动。NDR 与供电/地参考名称由只读 Tcl 兼容性检查保护，查询不可用时回退原 DEF 路径。记录见 `reports/optimization_v13/all8_final_validation/runtime_report.json`。
+
+本地入口耗时来自共享宿主的 RAM 工作区，仅为观测；官方已知成绩仍为 23.00806162648646（23.01），尚未确认达到 25 分。预算 512/768 的时序实验与本推荐包分开保存，本包预算保持 384。
+
+---
+
+# 历史 v12 与更早记录
+
+# 第十二版验证范围
+
+本轮最终八例对照全部通过：每例新旧提交 ODB、source guide、MLS 计划及官方 canonical DEF/guide/ODB 均一致，官方合法性均通过。此结论来自本地官方容器；新官方分数仍未取得。
+
+基线是 `submission_v11.zip`，对应 `result/scoring_result-5/detailed_scores.json` 的官方 23.00806162648646 分。最终可执行源码冻结于 `reports/optimization_v12/final_validation_candidate.zip`；原生 13 文件与已验证 v8 二进制来源逐文件相同。
+
+生产回归 207 项、支持工具回归 7 项通过。专项对照确认：历史 BP 8123 条完整连通诊断不变；最新五例 guide 的连通分量 ID 不变；BP 338543 条分类记录、pin 数、分类顺序及缓存 payload 不变。全量入口与官方 canonical 合法性对照的最终状态见 `reports/optimization_v12/all8_final_validation/runtime_report.json`。
+
+验证使用固定官方镜像、公开输入和已验证公开 GRT 二进制，以冻结 v11 为基线逐例交替运行。核对独立 ODB 重开、提交 ODB、source guide、MLS 计划/清单、apply Tcl、die lists，以及官方 canonical DEF/guide/ODB 的 SHA-256。
+
+本次使用 RAM 工作区。宿主仍保留旧实验的两个阻塞 Python 读取进程，启动时没有竞争的 EDA worker；因此报告按 `shared_host_functional_identity_only` 保存，仅把各次完整入口耗时视为本轮观测，不宣称干净独占的速度收益，也不推算官方分数。没有新执行 DRT/RCX/STA；只有最终物理和 canonical 产物与 v11 相同的用例才能继承既有质量输入身份。
+
+第一次 `all8_validation` 在冻结后发现最后一项合并失败清理尚未纳入，已停止并标为 superseded，结果不用于最终验收。以 `all8_final_validation` 为准。发布源码的执行文件必须与该冻结包逐字节一致；文档变更单独核对。
+
+并行失败边界由真实 Tcl 执行测试覆盖：两项验证失败、连通性独立失败、read_guides/write_db 失败、同时失败、零退出但 stderr、长报告、串行/少核心回退、合并失败与旧产物清理。独立源码复核未发现剩余问题。
+
+---
+
+# 历史 v11 验证记录
+
 # 第十一版验证记录
 
 本版保留 v8 物理策略，只优化六个 Python 运行文件。13 份原生覆盖层与 v8 相同。本次保存的官方打榜记录为 **22.536600893681708 分（约 22.54）**；v11 尚无新的官方成绩，**不能确认达到 25 分**。

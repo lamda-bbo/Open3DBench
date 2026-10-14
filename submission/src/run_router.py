@@ -19,13 +19,41 @@ def tcl_quote(value: str) -> str:
     return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('[', '\\[').replace(']', '\\]') + '"'
 
 
-def select_collateral(def_path: Path, platform: Path) -> tuple[list[Path], list[Path]]:
-    """Load exact normal-size masters used by this DEF, avoiding shrink copies."""
-    text = def_path.read_text()
-    section = re.search(r'\bCOMPONENTS\s+\d+\s*;(.*?)\bEND COMPONENTS\b', text, re.S)
+def component_masters(def_path: Path, chunk_size: int = 1024 * 1024) -> set[str]:
+    """Use the original section grammar without loading the later NETS section."""
+    pattern = re.compile(r'\bCOMPONENTS\s+\d+\s*;(.*?)\bEND COMPONENTS\b', re.S)
+    marker = 'END COMPONENTS'
+    pieces: list[str] = []
+    tail = ''
+    pending_boundary = False
+    with def_path.open() as stream:
+        while chunk := stream.read(chunk_size):
+            pieces.append(chunk)
+            if pending_boundary or marker in tail + chunk:
+                text = ''.join(pieces)
+                section = pattern.search(text)
+                # Read the following character before accepting a word boundary.
+                if section is not None and section.end() < len(text):
+                    return set(re.findall(r'^\s*-\s+\S+\s+(\S+)', section.group(1), re.M))
+                pending_boundary = section is not None
+            tail = (tail + chunk)[-(len(marker) - 1):]
+    section = pattern.search(''.join(pieces))
     if section is None:
         raise ValueError('DEF has no COMPONENTS section')
-    masters = set(re.findall(r'^\s*-\s+\S+\s+(\S+)', section.group(1), re.M))
+    return set(re.findall(r'^\s*-\s+\S+\s+(\S+)', section.group(1), re.M))
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def select_collateral(def_path: Path, platform: Path) -> tuple[list[Path], list[Path]]:
+    """Load exact normal-size masters used by this DEF, avoiding shrink copies."""
+    masters = component_masters(def_path)
     lef_files = [platform / 'lef/NangateOpenCellLibrary.tech.lef']
     cell_lefs = sorted((platform / 'lef_bottom').glob('*.lef')) + sorted((platform / 'lef_upper').glob('*.lef'))
     covered: set[str] = set()
@@ -181,7 +209,9 @@ def main() -> None:
             global_route_log, re.M)
     }
     pass_reset = re.search(r'^GRT_PASS_RESET (native|legacy)$', global_route_log, re.M)
+    prepared_metadata = re.search(r'^GRT_PREPARED_METADATA (native|def)(?: sha256=([0-9a-f]{64})| reason=(\S+))$', global_route_log, re.M)
     check_mode = re.search(r'^GRT_CHECK_MODE (parallel|serial)$', global_route_log, re.M)
+    check_schedule = re.search(r'^GRT_CHECK_SCHEDULE (overlap|before_finalize)$', global_route_log, re.M)
     layer_hint_counts = {
         interval: int(count) for count, interval in re.findall(
             r'^GRT_LAYER_HINTS applied=(\d+) die=(\S+)$', global_route_log, re.M)
@@ -221,14 +251,18 @@ def main() -> None:
         atomic_copy(plan, output / plan.name)
     shutil.copytree(results / 'die_net_lists', output / 'die_net_lists', dirs_exist_ok=True)
     manifest = {
-        'input_sha256': hashlib.sha256(def_path.read_bytes()).hexdigest(),
+        'input_sha256': file_sha256(def_path),
         'openroad_exe': exe, 'threads': args.threads,
         'mls_enabled': env.get('MLS_ENABLE', '1') != '0',
         'runtime_seconds': round(time.monotonic() - started, 3),
         'stage_seconds': stage_seconds,
         'detail_seconds': detail_seconds,
         'grt_pass_reset': pass_reset.group(1) if pass_reset else 'unreported',
+        'grt_prepared_metadata': prepared_metadata.group(1) if prepared_metadata else 'unreported',
+        'grt_prepared_metadata_sha256': prepared_metadata.group(2) if prepared_metadata else None,
+        'grt_prepared_metadata_fallback_reason': prepared_metadata.group(3) if prepared_metadata else None,
         'grt_check_mode': check_mode.group(1) if check_mode else 'unreported',
+        'grt_check_schedule': check_schedule.group(1) if check_schedule else 'unreported',
         'grt_layer_hint_counts': layer_hint_counts,
         'grt_resistance_hint_counts': resistance_hint_counts,
         'grt_capacity_adjustments': capacity_adjustments,
